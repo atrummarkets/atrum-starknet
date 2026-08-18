@@ -1,0 +1,13 @@
+# sncast account + network config.
+#
+# Accounts live in ~/.starknet_accounts and are NEVER committed. `sncast account create`
+# writes the key there; this file only names which one to use.
+
+[sncast.sepolia]
+account = "atrum_sepolia"
+url = "https://starknet-sepolia.public.blastapi.io/rpc/v0_8"
+
+[sncast.mainnet]
+account = "atrum_mainnet"
+# Override with your own Alchemy endpoint -- the public one rate-limits hard.
+url = "https://rpc.starknet.lava.build:443"
