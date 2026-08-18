@@ -517,14 +517,30 @@ pub mod AtrumAuction {
         /// The clearing price is where demand crosses supply: the price that maximises
         /// matched volume.
         ///
-        /// Ties break to the LOWEST price. That is deliberate and documented rather than
-        /// incidental — the rule has to be fully deterministic, because anyone may call
-        /// `clear` and two honest callers must reach the same answer. A later version
-        /// should tie-break toward the previous batch's clearing price instead, which is
-        /// meaningful rather than arbitrary; there is no previous price in a first batch.
+        /// TIE-BREAK: THE MIDPOINT OF THE CROSSING RANGE.
+        ///
+        /// Usually many prices clear the same volume. With buyers at 70 and 60 and sellers
+        /// at 50 and 65, every price from 50 to 70 matches exactly one unit — so the rule
+        /// that picks among them decides who captures the surplus, and it decides it on
+        /// every trade.
+        ///
+        /// Taking the lowest hands the entire spread to buyers; taking the highest hands it
+        /// to sellers. Either is a standing bias that a participant can farm once they
+        /// notice it. The midpoint splits it, which is what an opening auction does and
+        /// what a market maker can quote around without having to model the tie-break.
+        ///
+        /// It must also be FULLY DETERMINISTIC. `clear` is permissionless, so two honest
+        /// callers have to reach the same answer or the contract cannot tell which is
+        /// right. Integer division truncates, always downward, identically for everyone.
+        ///
+        /// A later version should anchor to the PREVIOUS batch's clearing price instead —
+        /// that minimises the jump between batches, which is what actually reduces
+        /// inventory risk for anyone providing liquidity. The midpoint is the honest
+        /// answer only for a first batch, where no previous price exists.
         fn find_clearing_price(self: @ContractState, batch: u64, count: u32) -> (u8, u128) {
-            let mut best_price: u8 = 0;
             let mut best_matched: u128 = 0;
+            let mut lo: u8 = 0;
+            let mut hi: u8 = 0;
             let mut p: u8 = 1;
 
             while p <= 99 {
@@ -536,11 +552,19 @@ pub mod AtrumAuction {
                 };
                 if matched > best_matched {
                     best_matched = matched;
-                    best_price = p;
+                    lo = p;
+                    hi = p;
+                } else if matched == best_matched && best_matched > 0 {
+                    // Still inside the crossing range, so widen it.
+                    hi = p;
                 }
                 p += 1;
             }
-            (best_price, best_matched)
+
+            if best_matched == 0 {
+                return (0, 0);
+            }
+            ((lo + hi) / 2, best_matched)
         }
 
         /// Cumulative demand and supply at price `p`.
