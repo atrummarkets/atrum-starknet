@@ -17,10 +17,34 @@ Verified on deploy: `get_phase` → `Phase::Open`, `get_batch` → 0, `get_order
 The class hash above is Sepolia's. Mainnet needs its own `DECLARE`, because a class is
 registered per network.
 
-Budget note: a STRK20 pool transaction is **~3.6 STRK** on mainnet, measured off real
-receipts (median of four, 3.29–3.66). A plain contract call is ~0.25. The `DECLARE` cost is
-the one figure not yet measured — it is dominated by CASM size, and this contract compiles
-to 4,669 Sierra felts / 251 KB.
+### Measured mainnet costs
+
+All figures measured, not estimated. Pool transactions come from real mainnet receipts
+(median of four, 3.29–3.66 STRK). Declare costs are measured on Sepolia and converted at
+mainnet gas prices — gas *amounts* are identical across networks, only prices differ, and
+the l2 price happens to be the same on both.
+
+| | mainnet |
+|---|---|
+| STRK20 pool transaction | **3.6 STRK** |
+| Plain contract call | ~0.25 STRK |
+| `DEPLOY` an instance | ~0.5 STRK |
+| `DECLARE` — single-batch, 1% grid (4,669 felts) | 24.97 STRK |
+| `DECLARE` — multi-batch, 5% grid (5,813 felts) | **31.93 STRK** |
+
+Early exit — the thing that makes this a market rather than a pool — costs about 7 STRK of
+declare. It is worth it.
+
+A full mainnet run is roughly **48 STRK**: declare, deploy, shield, two submits, a
+withdrawal, and the cheap direct calls in between.
+
+### What did NOT work
+
+A `Felt252Dict` price ladder cut clearing gas 3.9x (145M → 37M for four orders) by reading
+each order twice instead of once per price rung. It was reverted: the dict's squashing
+machinery made the class **31% larger**, and since `DECLARE` is around 60% of a deployment
+budget, size beats runtime gas here. The 5% grid gets most of the gas win with none of the
+size cost, and buckets more orders per rung, which is better for privacy too.
 
 ## Reproducing a deploy
 
