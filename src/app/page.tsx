@@ -1,6 +1,24 @@
 "use client";
 
 import { useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
+
+/**
+ * Entrance timing.
+ *
+ * The page arrives in the order you would read it, with enough delay between
+ * lines to feel deliberate rather than staggered for the sake of it. Under
+ * reduced-motion every element resolves instantly at its final position — the
+ * content is never withheld, only the movement is.
+ */
+const rise = (delay: number, reduced: boolean | null) =>
+  reduced
+    ? { initial: { opacity: 1 }, animate: { opacity: 1 } }
+    : {
+        initial: { opacity: 0, y: 14 },
+        animate: { opacity: 1, y: 0 },
+        transition: { duration: 0.7, delay, ease: [0.16, 1, 0.3, 1] as const },
+      };
 
 export default function Home() {
   const [email, setEmail] = useState("");
@@ -40,27 +58,40 @@ export default function Home() {
     }
   }
 
+  const reduced = useReducedMotion();
+
   return (
-    <div className="shell">
-      <header>
-        <span className="wordmark">Atrum</span>
-        <span className="chain">Starknet</span>
-      </header>
+    <>
+      {/* Atmosphere sits behind everything and is inert to the pointer. */}
+      <div className="atmos" aria-hidden="true">
+        <div className="backdrop" />
+        <div className="fog fog-a" />
+        <div className="fog fog-b" />
+      </div>
+
+      <div className="shell">
+        <motion.header {...rise(0, reduced)}>
+          <span className="wordmark">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/wordmark-chrome.png" alt="Atrum" />
+          </span>
+          <span className="chain">Starknet</span>
+        </motion.header>
 
       <main>
-        <p className="eyebrow">Coming soon</p>
+        <motion.p className="eyebrow" {...rise(0.1, reduced)}>Coming soon</motion.p>
 
-        <h1>
+        <motion.h1 {...rise(0.18, reduced)}>
           Nobody sees your order until it&nbsp;<em>already counts</em>.
-        </h1>
+        </motion.h1>
 
-        <p className="lead">
+        <motion.p className="lead" {...rise(0.3, reduced)}>
           A prediction market that clears in sealed batches. Orders are unreadable until the
           batch closes, everything settles at one shared price, and you can sell a position
           before the event resolves.
-        </p>
+        </motion.p>
 
-        <ul className="props">
+        <motion.ul className="props" {...rise(0.42, reduced)}>
           <li>
             <span className="n">01</span>
             <span>
@@ -84,9 +115,9 @@ export default function Home() {
               worth something.
             </span>
           </li>
-        </ul>
+        </motion.ul>
 
-        <div className="join">
+        <motion.div className="join" {...rise(0.54, reduced)}>
           <form onSubmit={submit}>
             <input
               type="email"
@@ -104,17 +135,18 @@ export default function Home() {
           <p className="msg" data-ok={ok} role="status" aria-live="polite">
             {msg}
           </p>
-        </div>
+        </motion.div>
       </main>
 
-      <footer>
+      <motion.footer {...rise(0.66, reduced)}>
         <span>Built on Starknet</span>
         <span>
           <a href="https://x.com/AtrumMarkets" target="_blank" rel="noreferrer">
             @AtrumMarkets
           </a>
         </span>
-      </footer>
-    </div>
+      </motion.footer>
+      </div>
+    </>
   );
 }

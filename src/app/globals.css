@@ -53,16 +53,75 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* A single shaft of light off-centre. The only ornament on the page. */
-body::before {
-  content: "";
+/* --------------------------------------------------------------------------
+   Atmosphere.
+   The fog plates are pure luminance on black, so `screen` IS the matte — no
+   alpha channel is involved, black simply drops out. Same technique the main
+   Atrum site uses in 3D, flattened to two CSS layers here because this page
+   does not need a renderer to say one thing.
+   Drift is slow enough to sit below noticed motion. You should feel the room
+   breathe without catching it moving.
+   -------------------------------------------------------------------------- */
+
+.atmos {
   position: fixed;
   inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(60vw 70vh at 68% -10%, rgba(236, 121, 107, 0.13), transparent 62%),
-    radial-gradient(40vw 40vh at 8% 108%, rgba(236, 121, 107, 0.06), transparent 70%);
   z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* A single shaft of light off-centre, tinted to Starknet's orange. */
+.atmos::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(58vw 68vh at 68% -12%, rgba(236, 121, 107, 0.15), transparent 62%),
+    radial-gradient(40vw 40vh at 6% 110%, rgba(236, 121, 107, 0.07), transparent 70%);
+}
+
+.fog {
+  position: absolute;
+  mix-blend-mode: screen;
+  background-repeat: no-repeat;
+  background-size: cover;
+  will-change: transform;
+}
+
+.fog-a {
+  inset: -12% -18% auto -18%;
+  height: 82vh;
+  background-image: url("/scene/fog-curtain.webp");
+  opacity: 0.3;
+  animation: drift-a 71s ease-in-out infinite alternate;
+}
+
+.fog-b {
+  inset: auto -22% -18% -22%;
+  height: 64vh;
+  background-image: url("/scene/fog-column.webp");
+  opacity: 0.2;
+  animation: drift-b 97s ease-in-out infinite alternate;
+}
+
+/* The floor. Barely there — it grounds the page without becoming scenery. */
+.backdrop {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 52vh;
+  background: url("/scene/backdrop.webp") center bottom / cover no-repeat;
+  opacity: 0.14;
+  mask-image: linear-gradient(to top, #000 0%, transparent 92%);
+}
+
+@keyframes drift-a {
+  from { transform: translate3d(-2.5%, 0, 0) scale(1.04); }
+  to   { transform: translate3d(2.5%, 1.5%, 0) scale(1.09); }
+}
+@keyframes drift-b {
+  from { transform: translate3d(2%, 0, 0) scale(1.06); }
+  to   { transform: translate3d(-2%, -1%, 0) scale(1.02); }
 }
 
 .shell {
@@ -87,13 +146,13 @@ header {
   flex-wrap: wrap;
 }
 
-.wordmark {
-  font-family: var(--font-display);
-  font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--atrum-ivory);
+.wordmark img {
+  display: block;
+  height: 30px;
+  width: auto;
+  /* The chrome art is bright; the shadow keeps it sitting IN the void rather
+     than floating on top of it. */
+  filter: drop-shadow(0 0 16px rgba(6, 7, 10, 0.9));
 }
 
 .chain {
@@ -261,8 +320,15 @@ footer a { color: var(--text-3); text-decoration: none; }
 footer a:hover { color: var(--strk-orange); }
 footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 3px; }
 
+/* Reduced motion means INSTANT, not broken: the fog stays, it simply stops
+   drifting, and entrances resolve to their final state rather than never
+   arriving. */
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; animation: none !important; }
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 @media (max-width: 40rem) {
