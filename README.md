@@ -31,8 +31,31 @@ Because every order is already committed when the batch closes, **front-running 
 discouraged or penalised — it is structurally impossible.** There is no moment at which
 someone can see your order and still act on it.
 
-What becomes public is the clearing price and total volume. That is the forecast, and it is
-the part that *should* be public. Individual sizes, sides and limit prices never are.
+### What is private here, stated precisely
+
+STRK20 and the Monad build hide different things, and this project is built around what
+STRK20 actually provides rather than around what the previous version did.
+
+| | Visible | Hidden |
+|---|---|---|
+| Who placed an order | | yes |
+| Which side you took | | until the batch closes |
+| Your limit price | | until the batch closes |
+| Order size | yes | |
+| Clearing price and volume | yes | |
+
+Amounts entering and leaving the pool through a helper contract are **public** — the
+`privacy_invoke` sandwich measures them on-chain, so they cannot be fixed at proof time. The
+owner of the resulting note is still hidden.
+
+**Sealed direction and price is what makes front-running impossible**, and that is the claim
+this project makes. A front-runner needs to know which way you are going and at what price;
+knowing that *someone* committed some collateral tells them nothing they can trade on.
+
+Size privacy is available on top of this by quoting in fixed denominations, so that every
+order looks identical and the public amount carries no information. That is the same
+technique the Monad build uses for withdrawals, and whether it is worth the UX cost is a
+decision for after the mechanism works.
 
 Positions use the conditional-token model: one unit of collateral mints one YES and one NO,
 the winner redeems for one and the loser for zero. That is what makes a position tradeable
