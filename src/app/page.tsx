@@ -79,8 +79,9 @@ export default function Home() {
           <li>
             <span className="n">03</span>
             <span>
-              <b>Leave when you want.</b> Positions are tradeable before the event settles.
-              Being right early is worth something.
+              <b>Leave when you want.</b> Buy the other side in a later batch and cash out
+              immediately — no counterparty, no waiting for the result. Being right early is
+              worth something.
             </span>
           </li>
         </ul>

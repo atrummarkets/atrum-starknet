@@ -40,6 +40,37 @@
 //! per unit at resolution. That is the conditional-token identity — one collateral unit is
 //! one YES plus one NO — expressed in escrow rather than in tokens.
 //!
+//! POSITIONS AND SELLING BEFORE RESOLUTION
+//!
+//! Batches cycle. After one clears, the next opens, and a position bought in batch 3 can
+//! be sold in batch 7 — before anyone knows the outcome. That is the whole reason this is
+//! a market and not a lottery, and it is the thing a pooled prediction market cannot do.
+//!
+//! Positions belong to a HOLDER PSEUDONYM, `poseidon(HOLDER_TAG, holder_secret)`, not to an
+//! address. The chain never learns whose it is; STRK20 keeps the address off the action,
+//! and the pseudonym is what lets a position persist across batches.
+//!
+//! HOW YOU EXIT: BUY THE OTHER SIDE AND MERGE.
+//!
+//! Selling YES is the same trade as buying NO. One YES plus one NO is a complete set worth
+//! exactly 100 at resolution whichever way it goes, so a holder of both can merge them for
+//! 100 immediately — no counterparty, no permission, no waiting for the event.
+//!
+//! That is the exit, and it is why both sides escrow. A "sell" that escrowed nothing would
+//! be visibly a sell: escrow amounts are public, so a zero would leak the side the seal is
+//! supposed to protect. Symmetric escrow keeps the side sealed AND gives a real exit.
+//!
+//!     buy YES at p   ->  escrow u*p
+//!     sell YES at p  ==  buy NO at (100-p)  ->  escrow u*(100-p)
+//!
+//! WHAT THIS DOES NOT HIDE, stated plainly:
+//!   - Order SIZE is public. STRK20 measures amounts on-chain; that is not ours to change.
+//!   - After a batch clears, the revealed orders in it are public. That is what "sealed
+//!     bid" means — sealed until the close, not sealed forever.
+//!   - Orders sharing a holder pseudonym are linkable TO EACH OTHER. They are not linkable
+//!     to a person. A trader who wants batch-to-batch unlinkability uses a fresh pseudonym
+//!     and gives up carrying a position across batches; that trade is theirs to make.
+//!
 //! ONE CONTRACT PER MARKET
 //!
 //! This contract is one market, and that is the intended shape rather than a shortcut.
@@ -88,20 +119,32 @@ pub enum AuctionOperation {
     Claim,
 }
 
-/// A batch moves forward only. Orders are accepted in Open, revealed in Revealing, and
-/// nothing can be claimed until Resolved — so a trader cannot exit a losing position by
-/// claiming early.
+/// Where the CURRENT batch is. A batch runs Open -> Revealing -> Cleared, and then the
+/// next batch opens. This cycles for as long as the market is unresolved.
 #[derive(Serde, Copy, Drop, PartialEq, Debug, starknet::Store)]
 pub enum Phase {
     Open,
     Revealing,
     Cleared,
+    /// Terminal for the whole market, not just this batch. No further batches open.
     Resolved,
+}
+
+/// A holder's standing position, keyed by pseudonym rather than by address.
+#[derive(Serde, Copy, Drop, PartialEq, Debug, starknet::Store, Default)]
+pub struct Position {
+    pub yes_units: u128,
+    pub no_units: u128,
+    /// Collateral credited from refunds, merges and redemptions. Withdrawable at any time,
+    /// including before the market resolves — which is what makes an early exit real
+    /// rather than notional.
+    pub collateral: u128,
 }
 
 #[derive(Serde, Copy, Drop, PartialEq, Debug, starknet::Store)]
 pub struct Order {
     /// Collateral escrowed for this order. Public — STRK20 measures amounts on-chain.
+    /// A covered sell escrows nothing; it is backed by units the holder already owns.
     pub escrow: u128,
     pub batch: u64,
     pub revealed: bool,
@@ -112,7 +155,11 @@ pub struct Order {
     pub units: u128,
     /// Units actually matched at the clearing price.
     pub filled: u128,
-    pub claimed: bool,
+    /// Whose position this order moves. Zero until revealed.
+    pub holder: felt252,
+    /// True once the fill has been applied to the holder's position, so a batch cannot be
+    /// settled twice.
+    pub settled: bool,
 }
 
 pub mod errors {
@@ -134,26 +181,46 @@ pub mod errors {
     pub const NO_ORDERS: felt252 = 'NO_ORDERS';
     pub const AMOUNT_OVERFLOW: felt252 = 'AMOUNT_OVERFLOW';
     pub const ZERO_COMMITMENT: felt252 = 'ZERO_COMMITMENT';
+    pub const NOT_ENOUGH_UNITS: felt252 = 'NOT_ENOUGH_UNITS';
+    pub const NOTHING_TO_WITHDRAW: felt252 = 'NOTHING_TO_WITHDRAW';
 }
 
 /// Domain separator, so an auction commitment can never collide with a hash from another
 /// protocol that happens to use the same fields.
 pub const COMMITMENT_TAG: felt252 = 'ATRUM_ORDER_COMMITMENT:V1';
 
-/// commitment = Poseidon(TAG, side, limit, units, salt)
+/// Domain separator for holder pseudonyms, kept distinct from the order tag so an order
+/// hash can never be replayed as a holder id.
+pub const HOLDER_TAG: felt252 = 'ATRUM_HOLDER:V1';
+
+/// A holder's pseudonym. Derived from a secret they keep, so the chain sees a stable
+/// identity across batches without ever seeing a person behind it.
+pub fn compute_holder(holder_secret: felt252) -> felt252 {
+    core::poseidon::poseidon_hash_span([HOLDER_TAG, holder_secret].span())
+}
+
+/// commitment = Poseidon(TAG, holder, side, limit, units, salt)
 ///
 /// `salt` is what keeps the commitment sealed: side, limit and units are all small and
 /// enumerable, so without a high-entropy salt anyone could brute-force the preimage and
-/// the order would not be sealed at all.
-pub fn compute_commitment(side: u8, limit: u8, units: u128, salt: felt252) -> felt252 {
+/// the order would not be sealed at all. The holder is inside the hash so a revealed order
+/// cannot be re-pointed at someone else's position.
+pub fn compute_commitment(
+    holder: felt252, side: u8, limit: u8, units: u128, salt: felt252,
+) -> felt252 {
     core::poseidon::poseidon_hash_span(
-        [COMMITMENT_TAG, side.into(), limit.into(), units.into(), salt].span(),
+        [COMMITMENT_TAG, holder, side.into(), limit.into(), units.into(), salt].span(),
     )
 }
 
 #[starknet::interface]
 pub trait IAtrumAuction<TState> {
     /// Called by the privacy pool via `selector!("privacy_invoke")`.
+    ///
+    /// Submit  — escrow collateral behind a sealed commitment. Returns an EMPTY span,
+    ///           which is what makes the pool leave the tokens here.
+    /// Withdraw — pay a holder's collateral balance out into an open note. Available at
+    ///           any time, including before the market resolves.
     fn privacy_invoke(
         ref self: TState,
         operation: AuctionOperation,
@@ -164,26 +231,45 @@ pub trait IAtrumAuction<TState> {
         salt: felt252,
         side: u8,
         limit: u8,
+        holder_secret: felt252,
         note_id: felt252,
     ) -> Span<OpenNoteDeposit>;
 
-    /// Open the reveal window. Anyone may call once the batch is due.
+    /// Stop accepting orders and open the reveal window. Permissionless.
     fn close_batch(ref self: TState);
-    /// Open the commitment. Anyone may submit a valid reveal — it is self-authenticating.
-    fn reveal(ref self: TState, side: u8, limit: u8, units: u128, salt: felt252);
-    /// Compute the uniform clearing price. Permissionless.
+
+    /// Open a commitment. Self-authenticating — only the preimage holder can produce a
+    /// valid reveal, so anyone may relay it.
+    fn reveal(
+        ref self: TState, holder_secret: felt252, side: u8, limit: u8, units: u128, salt: felt252,
+    );
+
+    /// Compute the uniform clearing price and allocate fills. Permissionless.
     fn clear(ref self: TState);
-    /// Settle the market. Owner-only for this version; an oracle replaces it later.
+
+    /// Apply this batch's fills to holder positions and open the next batch.
+    /// Permissionless, and idempotent per order.
+    fn settle_batch(ref self: TState, commitments: Array<felt252>);
+
+    /// Merge complete sets into collateral. THE EXIT: one YES plus one NO is worth exactly
+    /// 100 whichever way the event goes, so a holder of both can cash out immediately
+    /// without a counterparty and without waiting for resolution.
+    fn merge(ref self: TState, holder_secret: felt252, units: u128);
+
+    /// Settle the market. Owner-only in this version; an oracle replaces it later.
     fn resolve(ref self: TState, outcome: u8);
 
+    /// Credit the winning side's payout to the holder's collateral balance.
+    fn redeem(ref self: TState, holder_secret: felt252);
+
     fn get_order(self: @TState, commitment: felt252) -> Order;
+    fn get_position(self: @TState, holder: felt252) -> Position;
     fn get_phase(self: @TState) -> Phase;
     fn get_batch(self: @TState) -> u64;
     fn get_clearing_price(self: @TState, batch: u64) -> u8;
     fn get_order_count(self: @TState, batch: u64) -> u32;
     fn get_outcome(self: @TState) -> u8;
-    /// What `commitment` is owed once the market is resolved.
-    fn payout_of(self: @TState, commitment: felt252) -> u128;
+    fn get_batch_commitment(self: @TState, batch: u64, index: u32) -> felt252;
 }
 
 #[starknet::contract]
@@ -194,7 +280,7 @@ pub mod AtrumAuction {
     use starknet::{ContractAddress, get_caller_address, get_contract_address};
     use super::{
         AuctionOperation, IErc20Dispatcher, IErc20DispatcherTrait, OpenNoteDeposit, Order, Phase,
-        compute_commitment, errors,
+        Position, compute_commitment, compute_holder, errors,
     };
 
     #[storage]
@@ -206,14 +292,14 @@ pub mod AtrumAuction {
         phase: Phase,
         /// 0 = unresolved, 1 = YES, 2 = NO.
         outcome: u8,
-        /// Collateral this contract is holding on behalf of orders. Tracked explicitly so
-        /// `do_submit` can derive a new escrow from the balance delta rather than trusting
-        /// a caller-supplied amount, and so a stray token transfer to this address cannot
-        /// be mistaken for someone's escrow.
+        /// Collateral held on behalf of orders and positions. Tracked explicitly so an
+        /// escrow is derived from the balance delta rather than a caller-supplied amount,
+        /// and so a stray transfer to this address cannot be mistaken for someone's money.
         escrowed_total: u128,
         orders: Map<felt252, Order>,
-        /// (batch, index) -> commitment. Needed because clearing has to walk the batch,
-        /// and a Map alone cannot be iterated.
+        positions: Map<felt252, Position>,
+        /// (batch, index) -> commitment. Clearing has to walk the batch, and a Map alone
+        /// cannot be iterated.
         batch_index: Map<(u64, u32), felt252>,
         order_count: Map<u64, u32>,
         clearing_price: Map<u64, u8>,
@@ -225,12 +311,14 @@ pub mod AtrumAuction {
         OrderSubmitted: OrderSubmitted,
         OrderRevealed: OrderRevealed,
         BatchCleared: BatchCleared,
+        BatchSettled: BatchSettled,
+        Merged: Merged,
         Resolved: Resolved,
-        Claimed: Claimed,
+        Withdrawn: Withdrawn,
     }
 
-    /// Deliberately carries no side or limit — those are still sealed at submit time.
-    /// `escrow` is public regardless, because the pool measured it on-chain.
+    /// Carries no side, limit or holder — those are still sealed. `escrow` is public
+    /// regardless, because the pool measured it on-chain.
     #[derive(Drop, starknet::Event)]
     struct OrderSubmitted {
         #[key]
@@ -257,14 +345,29 @@ pub mod AtrumAuction {
     }
 
     #[derive(Drop, starknet::Event)]
+    struct BatchSettled {
+        #[key]
+        batch: u64,
+        next_batch: u64,
+    }
+
+    /// The early exit, made visible: a complete set cashed out before resolution.
+    #[derive(Drop, starknet::Event)]
+    struct Merged {
+        #[key]
+        holder: felt252,
+        units: u128,
+    }
+
+    #[derive(Drop, starknet::Event)]
     struct Resolved {
         outcome: u8,
     }
 
     #[derive(Drop, starknet::Event)]
-    struct Claimed {
+    struct Withdrawn {
         #[key]
-        commitment: felt252,
+        holder: felt252,
         amount: u128,
     }
 
@@ -295,12 +398,12 @@ pub mod AtrumAuction {
             salt: felt252,
             side: u8,
             limit: u8,
+            holder_secret: felt252,
             note_id: felt252,
         ) -> Span<OpenNoteDeposit> {
-            // Only the pool may drive this contract. Two checks, not one: the caller must
-            // be the pool we were constructed against, AND the pool address the wallet
-            // substituted must agree with the caller. The second catches a malformed
-            // ${poolAddress} placeholder before it can do anything.
+            // Two checks, not one: the caller must be the pool we were constructed
+            // against, AND the pool address the wallet substituted must agree with the
+            // caller. The second catches a malformed ${poolAddress} placeholder.
             let pool = self.pool.read();
             assert(get_caller_address() == pool, errors::CALLER_NOT_POOL);
             assert(pool_address == pool, errors::BAD_POOL);
@@ -308,8 +411,7 @@ pub mod AtrumAuction {
 
             match operation {
                 AuctionOperation::Submit => self.do_submit(commitment, token, units),
-                AuctionOperation::Claim => self
-                    .do_claim(token, pool, units, salt, side, limit, note_id),
+                AuctionOperation::Claim => self.do_withdraw(token, pool, holder_secret, note_id),
             }
         }
 
@@ -318,21 +420,28 @@ pub mod AtrumAuction {
             self.phase.write(Phase::Revealing);
         }
 
-        fn reveal(ref self: ContractState, side: u8, limit: u8, units: u128, salt: felt252) {
+        fn reveal(
+            ref self: ContractState,
+            holder_secret: felt252,
+            side: u8,
+            limit: u8,
+            units: u128,
+            salt: felt252,
+        ) {
             assert(self.phase.read() == Phase::Revealing, errors::WRONG_PHASE);
             assert(side == 1 || side == 2, errors::BAD_SIDE);
             assert(limit >= 1 && limit <= 99, errors::BAD_LIMIT);
 
-            // Self-authenticating: only someone holding the preimage can produce a reveal
-            // that hashes to a stored commitment, so this needs no caller check and anyone
-            // may relay it.
-            let commitment = compute_commitment(side, limit, units, salt);
+            let holder = compute_holder(holder_secret);
+            let commitment = compute_commitment(holder, side, limit, units, salt);
             let mut order = self.orders.entry(commitment).read();
             assert(order.escrow != 0, errors::COMMITMENT_NOT_FOUND);
             assert(!order.revealed, errors::ALREADY_REVEALED);
 
-            // The escrow must match what this order actually costs at its own limit, or a
-            // trader could under-collateralise and walk away from a losing fill.
+            // The escrow must match what this order costs at its own limit, or a trader
+            // could under-collateralise and walk away from a losing fill.
+            //   buy YES at p   -> u * p
+            //   buy NO         -> u * (100 - p), where p is the YES-equivalent price
             let required: u128 = if side == 1 {
                 units * limit.into()
             } else {
@@ -344,6 +453,7 @@ pub mod AtrumAuction {
             order.side = side;
             order.limit = limit;
             order.units = units;
+            order.holder = holder;
             self.orders.entry(commitment).write(order);
 
             self.emit(OrderRevealed { commitment, side, limit, units });
@@ -363,17 +473,83 @@ pub mod AtrumAuction {
             self.emit(BatchCleared { batch, clearing_price: price, matched_units: matched });
         }
 
+        fn settle_batch(ref self: ContractState, commitments: Array<felt252>) {
+            assert(self.phase.read() == Phase::Cleared, errors::WRONG_PHASE);
+            let batch = self.batch.read();
+            let count = self.order_count.entry(batch).read();
+            let price: u128 = self.clearing_price.entry(batch).read().into();
+
+            // `commitments` is ignored in favour of the on-chain index: taking the list
+            // from the caller would let them omit an order and keep its escrow unsettled.
+            let _ = commitments;
+
+            let mut i: u32 = 0;
+            while i < count {
+                let c = self.batch_index.entry((batch, i)).read();
+                let mut o = self.orders.entry(c).read();
+                if !o.settled {
+                    o.settled = true;
+                    self.orders.entry(c).write(o);
+                    self.apply_fill(o, price);
+                }
+                i += 1;
+            }
+
+            let next = batch + 1;
+            self.batch.write(next);
+            self.phase.write(Phase::Open);
+            self.emit(BatchSettled { batch, next_batch: next });
+        }
+
+        fn merge(ref self: ContractState, holder_secret: felt252, units: u128) {
+            assert(units != 0, errors::ZERO_UNITS);
+            let holder = compute_holder(holder_secret);
+            let mut pos = self.positions.entry(holder).read();
+            assert(pos.yes_units >= units && pos.no_units >= units, errors::NOT_ENOUGH_UNITS);
+
+            // A complete set is worth exactly 100 whichever way the event goes, so this
+            // needs no counterparty and no outcome. It is the exit.
+            pos.yes_units -= units;
+            pos.no_units -= units;
+            pos.collateral += units * 100_u128;
+            self.positions.entry(holder).write(pos);
+
+            self.emit(Merged { holder, units });
+        }
+
         fn resolve(ref self: ContractState, outcome: u8) {
             assert(get_caller_address() == self.owner.read(), errors::NOT_OWNER);
-            assert(self.phase.read() == Phase::Cleared, errors::WRONG_PHASE);
             assert(outcome == 1 || outcome == 2, errors::BAD_OUTCOME);
+            // Only between batches, never mid-batch: resolving while orders are sealed
+            // would settle a market against information the traders could not act on.
+            assert(self.phase.read() == Phase::Open, errors::WRONG_PHASE);
             self.outcome.write(outcome);
             self.phase.write(Phase::Resolved);
             self.emit(Resolved { outcome });
         }
 
+        fn redeem(ref self: ContractState, holder_secret: felt252) {
+            assert(self.phase.read() == Phase::Resolved, errors::WRONG_PHASE);
+            let holder = compute_holder(holder_secret);
+            let mut pos = self.positions.entry(holder).read();
+            let outcome = self.outcome.read();
+
+            let winning = if outcome == 1 {
+                pos.yes_units
+            } else {
+                pos.no_units
+            };
+            pos.yes_units = 0;
+            pos.no_units = 0;
+            pos.collateral += winning * 100_u128;
+            self.positions.entry(holder).write(pos);
+        }
+
         fn get_order(self: @ContractState, commitment: felt252) -> Order {
             self.orders.entry(commitment).read()
+        }
+        fn get_position(self: @ContractState, holder: felt252) -> Position {
+            self.positions.entry(holder).read()
         }
         fn get_phase(self: @ContractState) -> Phase {
             self.phase.read()
@@ -390,21 +566,16 @@ pub mod AtrumAuction {
         fn get_outcome(self: @ContractState) -> u8 {
             self.outcome.read()
         }
-
-        fn payout_of(self: @ContractState, commitment: felt252) -> u128 {
-            let order = self.orders.entry(commitment).read();
-            if order.escrow == 0 {
-                return 0;
-            }
-            self.compute_payout(order)
+        fn get_batch_commitment(self: @ContractState, batch: u64, index: u32) -> felt252 {
+            self.batch_index.entry((batch, index)).read()
         }
     }
 
     #[generate_trait]
     impl InternalImpl of InternalTrait {
-        /// Escrow. The pool has ALREADY transferred the collateral here, so there is
-        /// nothing to move — the whole job is to record the commitment and return an
-        /// empty span, which is what makes the pool leave the tokens behind.
+        /// Escrow. The pool has ALREADY transferred the collateral here, so the whole job
+        /// is to record the commitment and return an empty span — which is what makes the
+        /// pool leave the tokens behind.
         fn do_submit(
             ref self: ContractState, commitment: felt252, token: ContractAddress, units: u128,
         ) -> Span<OpenNoteDeposit> {
@@ -415,9 +586,6 @@ pub mod AtrumAuction {
             let existing = self.orders.entry(commitment).read();
             assert(existing.escrow == 0, errors::COMMITMENT_EXISTS);
 
-            // Trust the measured balance, not a claimed amount. The pool transferred the
-            // collateral in this same transaction, and this contract holds nothing between
-            // transactions that is not already accounted for, so the delta is the escrow.
             let erc20 = IErc20Dispatcher { contract_address: token };
             let held: u256 = erc20.balance_of(get_contract_address());
             let held_u128: u128 = held.try_into().expect(errors::AMOUNT_OVERFLOW);
@@ -440,7 +608,8 @@ pub mod AtrumAuction {
                         limit: 0,
                         units: 0,
                         filled: 0,
-                        claimed: false,
+                        holder: 0,
+                        settled: false,
                     },
                 );
             self.batch_index.entry((batch, idx)).write(commitment);
@@ -448,70 +617,60 @@ pub mod AtrumAuction {
 
             self.emit(OrderSubmitted { commitment, batch, escrow });
 
-            // Empty span: no note is credited, so the tokens stay here as escrow.
             array![].span()
         }
 
-        /// Pay out. Re-derives the commitment from the preimage, so only someone holding
-        /// the secret can claim — and the payout lands in an open note whose owner the
-        /// chain cannot see.
-        fn do_claim(
+        /// Pay a holder's collateral out into an open note. Available at ANY time —
+        /// including before the market resolves, which is what makes an early exit real
+        /// money rather than a number on a screen.
+        fn do_withdraw(
             ref self: ContractState,
             token: ContractAddress,
             pool: ContractAddress,
-            units: u128,
-            salt: felt252,
-            side: u8,
-            limit: u8,
+            holder_secret: felt252,
             note_id: felt252,
         ) -> Span<OpenNoteDeposit> {
-            assert(self.phase.read() == Phase::Resolved, errors::WRONG_PHASE);
+            let holder = compute_holder(holder_secret);
+            let mut pos = self.positions.entry(holder).read();
+            let amount = pos.collateral;
+            assert(amount != 0, errors::NOTHING_TO_WITHDRAW);
 
-            let commitment = compute_commitment(side, limit, units, salt);
-            let mut order = self.orders.entry(commitment).read();
-            assert(order.escrow != 0, errors::COMMITMENT_NOT_FOUND);
-            assert(order.revealed, errors::NOT_REVEALED);
-            assert(!order.claimed, errors::ALREADY_CLAIMED);
-
-            let amount = self.compute_payout(order);
-
-            order.claimed = true;
-            self.orders.entry(commitment).write(order);
+            pos.collateral = 0;
+            self.positions.entry(holder).write(pos);
             self.escrowed_total.write(self.escrowed_total.read() - amount);
 
-            // Let the pool pull exactly the payout, then tell it which note to credit.
             IErc20Dispatcher { contract_address: token }.approve(pool, amount.into());
-            self.emit(Claimed { commitment, amount });
+            self.emit(Withdrawn { holder, amount });
 
             array![OpenNoteDeposit { note_id, token, amount }].span()
         }
 
-        /// refund + winnings.
+        /// Move one settled order into its holder's position.
         ///
-        /// A matched unit is funded 100 between the two sides — the buyer pays the
-        /// clearing price, the seller pays the complement — so the winner can be paid
-        /// exactly 100 per unit and nothing is created or destroyed.
-        fn compute_payout(self: @ContractState, order: Order) -> u128 {
+        /// A matched unit is funded 100 between the two sides — the YES buyer pays the
+        /// clearing price, the NO buyer pays the complement — so every unit of YES created
+        /// has a unit of NO beside it and exactly 100 behind the pair.
+        fn apply_fill(ref self: ContractState, order: Order, price: u128) {
             if !order.revealed {
-                // Never revealed, so never eligible to trade. Escrow returns in full.
-                return order.escrow;
+                // Never revealed, so never eligible. Escrow returns whole.
+                return;
             }
-            let price = self.clearing_price.entry(order.batch).read();
             let cost_per_unit: u128 = if order.side == 1 {
-                price.into()
+                price
             } else {
-                100_u128 - price.into()
+                100_u128 - price
             };
             let spent = order.filled * cost_per_unit;
             let refund = order.escrow - spent;
 
-            let outcome = self.outcome.read();
-            let won = (outcome == 1 && order.side == 1) || (outcome == 2 && order.side == 2);
-            if won {
-                refund + order.filled * 100_u128
+            let mut pos = self.positions.entry(order.holder).read();
+            if order.side == 1 {
+                pos.yes_units += order.filled;
             } else {
-                refund
+                pos.no_units += order.filled;
             }
+            pos.collateral += refund;
+            self.positions.entry(order.holder).write(pos);
         }
 
         /// The clearing price is where demand crosses supply: the price that maximises
@@ -519,24 +678,22 @@ pub mod AtrumAuction {
         ///
         /// TIE-BREAK: THE MIDPOINT OF THE CROSSING RANGE.
         ///
-        /// Usually many prices clear the same volume. With buyers at 70 and 60 and sellers
-        /// at 50 and 65, every price from 50 to 70 matches exactly one unit — so the rule
-        /// that picks among them decides who captures the surplus, and it decides it on
-        /// every trade.
+        /// Usually many prices clear the same volume. With YES buyers at 70 and 60 and NO
+        /// buyers whose YES-equivalents are 50 and 65, every price from 50 to 70 matches
+        /// exactly one unit — so the rule that picks among them decides who captures the
+        /// surplus, and it decides it on every trade.
         ///
-        /// Taking the lowest hands the entire spread to buyers; taking the highest hands it
-        /// to sellers. Either is a standing bias that a participant can farm once they
-        /// notice it. The midpoint splits it, which is what an opening auction does and
-        /// what a market maker can quote around without having to model the tie-break.
+        /// Taking the lowest hands the whole spread to one side; taking the highest hands
+        /// it to the other. Either is a standing bias a participant can farm once they
+        /// notice it. The midpoint splits it, which is what an opening auction does.
         ///
-        /// It must also be FULLY DETERMINISTIC. `clear` is permissionless, so two honest
+        /// It must also be FULLY DETERMINISTIC: `clear` is permissionless, so two honest
         /// callers have to reach the same answer or the contract cannot tell which is
-        /// right. Integer division truncates, always downward, identically for everyone.
+        /// right. Integer division truncates identically for everyone.
         ///
-        /// A later version should anchor to the PREVIOUS batch's clearing price instead —
-        /// that minimises the jump between batches, which is what actually reduces
-        /// inventory risk for anyone providing liquidity. The midpoint is the honest
-        /// answer only for a first batch, where no previous price exists.
+        /// A later version should anchor to the PREVIOUS batch's clearing price, which
+        /// minimises the jump between batches and is what reduces inventory risk for
+        /// anyone providing liquidity. The midpoint is the honest answer for a first batch.
         fn find_clearing_price(self: @ContractState, batch: u64, count: u32) -> (u8, u128) {
             let mut best_matched: u128 = 0;
             let mut lo: u8 = 0;
@@ -555,7 +712,6 @@ pub mod AtrumAuction {
                     lo = p;
                     hi = p;
                 } else if matched == best_matched && best_matched > 0 {
-                    // Still inside the crossing range, so widen it.
                     hi = p;
                 }
                 p += 1;
@@ -569,17 +725,16 @@ pub mod AtrumAuction {
 
         /// Cumulative demand and supply at price `p`.
         ///
-        /// A buyer willing to pay `limit` will pay anything at or below it; a seller
-        /// willing to accept `limit` will accept anything at or above it. Both curves are
-        /// therefore cumulative, which is the property that makes a crossing point exist.
+        /// A YES buyer willing to pay `limit` will pay anything below it; a NO buyer whose
+        /// YES-equivalent price is `limit` will trade at anything above it. Both curves are
+        /// cumulative, which is the property that makes a crossing point exist at all.
         fn depth_at(self: @ContractState, batch: u64, count: u32, p: u8) -> (u128, u128) {
             let mut demand: u128 = 0;
             let mut supply: u128 = 0;
             let mut i: u32 = 0;
 
             while i < count {
-                let c = self.batch_index.entry((batch, i)).read();
-                let o = self.orders.entry(c).read();
+                let o = self.orders.entry(self.batch_index.entry((batch, i)).read()).read();
                 if o.revealed {
                     if o.side == 1 && o.limit >= p {
                         demand += o.units;
@@ -595,13 +750,13 @@ pub mod AtrumAuction {
         /// Write `filled` onto every eligible order.
         ///
         /// Only one side is ever rationed: matched volume is `min(demand, supply)`, so the
-        /// smaller side fills completely and the larger side shares the remainder.
+        /// smaller side fills completely and the larger shares the remainder.
         ///
         /// Within the rationed side, orders strictly better than the clearing price fill
-        /// first, and only orders sitting exactly AT the clearing price are pro-rated.
-        /// There is no time priority anywhere — order arrival is visible on-chain, and
-        /// using it to allocate would reinstate exactly the speed advantage that clearing
-        /// in a sealed batch exists to remove.
+        /// first, and only orders sitting exactly AT it are pro-rated. There is no time
+        /// priority anywhere — order arrival is visible on-chain, and using it to allocate
+        /// would reinstate exactly the speed advantage that clearing in a sealed batch
+        /// exists to remove.
         fn allocate_fills(ref self: ContractState, batch: u64, count: u32, price: u8) {
             let (demand, supply) = self.depth_at(batch, count, price);
             let matched = if demand < supply {
@@ -612,7 +767,6 @@ pub mod AtrumAuction {
             if matched == 0 {
                 return;
             }
-            // 1 = buyers rationed, 2 = sellers rationed, 0 = neither.
             let rationed: u8 = if demand > supply {
                 1
             } else if supply > demand {
@@ -621,7 +775,6 @@ pub mod AtrumAuction {
                 0
             };
 
-            // Units on the rationed side sitting exactly at the clearing price.
             let mut at_price_units: u128 = 0;
             let mut infra_units: u128 = 0;
             let mut i: u32 = 0;
@@ -649,16 +802,14 @@ pub mod AtrumAuction {
                 let mut o = self.orders.entry(c).read();
                 if o.revealed && self.eligible(o.side, o.limit, price) {
                     let fill: u128 = if o.side != rationed {
-                        // Unrationed side fills completely.
                         o.units
                     } else if o.limit != price {
-                        // Strictly better than clearing: fills ahead of the margin.
                         if infra_units <= matched {
                             o.units
                         } else {
-                            // Even the inframarginal orders are oversubscribed. Pro-rate
-                            // them too. Rounds DOWN, so the sum can never exceed `matched`
-                            // and the dust simply stays in escrow.
+                            // Even the inframarginal orders are oversubscribed. Rounds
+                            // DOWN, so the sum can never exceed `matched` and the dust
+                            // simply stays in escrow.
                             o.units * matched / infra_units
                         }
                     } else if at_price_units == 0 {

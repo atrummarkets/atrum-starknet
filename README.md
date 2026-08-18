@@ -57,9 +57,17 @@ order looks identical and the public amount carries no information. That is the 
 technique the Monad build uses for withdrawals, and whether it is worth the UX cost is a
 decision for after the mechanism works.
 
-Positions use the conditional-token model: one unit of collateral mints one YES and one NO,
-the winner redeems for one and the loser for zero. That is what makes a position tradeable
-before the event resolves.
+Positions use the conditional-token model, and that is what makes an exit real rather than
+notional. One YES plus one NO is a complete set worth exactly 100 whichever way the event
+goes — so a holder of both can merge them for 100 **immediately**, with no counterparty, no
+permission, and no waiting for the result.
+
+Selling YES is therefore the same trade as buying NO. Buy YES in batch 3, buy NO in batch 7,
+merge, withdraw. The difference between what you paid and 100 is your profit, taken while the
+market is still open.
+
+It is also why both sides escrow. A "sell" that escrowed nothing would be visibly a sell —
+escrow amounts are public, so a zero would leak the side the seal exists to protect.
 
 ## Why this needs no sorting
 
