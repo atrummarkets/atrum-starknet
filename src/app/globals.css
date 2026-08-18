@@ -1,0 +1,270 @@
+/* ==========================================================================
+   ATRUM × Starknet — coming soon
+   Material tokens carried over from the Atrum brand kit. The accent is the one
+   deliberate change: Starknet's orange replaces champagne, because this surface
+   belongs to that ecosystem and should read as part of it on sight.
+   ========================================================================== */
+
+:root {
+  /* --- Material: the void ------------------------------------------------ */
+  --atrum-void:      #06070A;
+  --atrum-basalt:    #0D0F14;
+  --atrum-graphite:  #15181F;
+  --atrum-slate:     #1F242D;
+  --atrum-iron:      #333A45;
+  --atrum-ash:       #5A6472;
+  --atrum-smoke:     #8B94A3;
+  --atrum-pewter:    #B9C0CA;
+  --atrum-bone:      #E8E4DC;
+  --atrum-ivory:     #F5F1E8;
+
+  /* --- Light: the beam. Starknet orange, used under 1% of any surface. --- */
+  --strk-orange:     #EC796B;
+  --strk-orange-lit: #FF9382;
+  --strk-deep:       #7A2F26;
+
+  --bg:          var(--atrum-void);
+  --bg-raised:   var(--atrum-basalt);
+  --bg-panel:    var(--atrum-graphite);
+  --rule:        rgba(232, 228, 220, 0.10);
+  --rule-strong: rgba(232, 228, 220, 0.22);
+  --text:        var(--atrum-bone);
+  --text-2:      var(--atrum-smoke);
+  --text-3:      var(--atrum-ash);
+
+  --t-hero:    clamp(44px, 8vw, 104px);
+  --t-lead:    clamp(17px, 2.1vw, 21px);
+  --t-body:    16px;
+  --t-label:   11px;
+
+  --font-display: var(--font-syne), system-ui, sans-serif;
+  --font-text:    var(--font-manrope), system-ui, -apple-system, sans-serif;
+  --font-mono:    var(--font-geist-mono), ui-monospace, Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* A single shaft of light off-centre. The only ornament on the page. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(60vw 70vh at 68% -10%, rgba(236, 121, 107, 0.13), transparent 62%),
+    radial-gradient(40vw 40vh at 8% 108%, rgba(236, 121, 107, 0.06), transparent 70%);
+  z-index: 0;
+}
+
+.shell {
+  position: relative;
+  z-index: 1;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 2rem;
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 2.5rem;
+}
+
+/* ---------- header ---------- */
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.wordmark {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--atrum-ivory);
+}
+
+.chain {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--strk-orange);
+  border: 1px solid rgba(236, 121, 107, 0.32);
+  border-radius: 2px;
+  padding: 0.42em 0.7em;
+}
+.chain::before {
+  content: "";
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--strk-orange);
+  box-shadow: 0 0 10px var(--strk-orange);
+}
+
+/* ---------- hero ---------- */
+
+main {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1.6rem;
+  padding: 3rem 0;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+h1 {
+  font-family: var(--font-display);
+  font-size: var(--t-hero);
+  font-weight: 700;
+  line-height: 0.98;
+  letter-spacing: -0.03em;
+  margin: 0;
+  max-width: 16ch;
+  text-wrap: balance;
+}
+h1 em {
+  font-style: normal;
+  color: var(--strk-orange);
+}
+
+.lead {
+  font-size: var(--t-lead);
+  line-height: 1.55;
+  color: var(--text-2);
+  max-width: 54ch;
+  margin: 0;
+}
+
+/* ---------- the three properties ---------- */
+
+.props {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--rule);
+  max-width: 46rem;
+}
+.props li {
+  display: grid;
+  grid-template-columns: 2.4rem 1fr;
+  gap: 0 1rem;
+  align-items: baseline;
+  padding: 0.95rem 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--t-body);
+  color: var(--text-2);
+}
+.props .n {
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  letter-spacing: 0.1em;
+  color: var(--strk-orange);
+}
+.props b { color: var(--text); font-weight: 600; }
+
+/* ---------- waitlist ---------- */
+
+.join { margin-top: 0.6rem; max-width: 34rem; }
+
+form {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+input[type="email"] {
+  flex: 1 1 16rem;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule-strong);
+  border-radius: 3px;
+  color: var(--text);
+  font-family: var(--font-text);
+  font-size: var(--t-body);
+  padding: 0.85em 1em;
+  min-width: 0;
+}
+input[type="email"]::placeholder { color: var(--text-3); }
+input[type="email"]:focus-visible {
+  outline: none;
+  border-color: var(--strk-orange);
+  box-shadow: 0 0 0 3px rgba(236, 121, 107, 0.16);
+}
+
+button {
+  background: var(--strk-orange);
+  color: #16070A;
+  border: none;
+  border-radius: 3px;
+  font-family: var(--font-text);
+  font-weight: 650;
+  font-size: var(--t-body);
+  padding: 0.85em 1.5em;
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+button:hover:not(:disabled) { background: var(--strk-orange-lit); }
+button:disabled { opacity: 0.55; cursor: default; }
+button:focus-visible {
+  outline: 2px solid var(--strk-orange-lit);
+  outline-offset: 2px;
+}
+
+.msg {
+  margin: 0.85rem 0 0;
+  font-size: 0.94rem;
+  min-height: 1.4em;
+  color: var(--text-2);
+}
+.msg[data-ok="true"] { color: var(--strk-orange); }
+
+/* ---------- footer ---------- */
+
+footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem 1.6rem;
+  flex-wrap: wrap;
+  padding-top: 1.4rem;
+  border-top: 1px solid var(--rule);
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+footer a { color: var(--text-3); text-decoration: none; }
+footer a:hover { color: var(--strk-orange); }
+footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+@media (max-width: 40rem) {
+  .props li { grid-template-columns: 1.8rem 1fr; }
+}
