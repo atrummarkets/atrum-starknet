@@ -18,6 +18,7 @@ import { Shield } from "@/components/Shield";
 import { Register } from "@/components/Register";
 import { Disclosure, MarketHeader } from "@/components/Market";
 import { Keeper } from "@/components/Keeper";
+import { Autopilot } from "@/components/Autopilot";
 import { OrderTicket } from "@/components/OrderTicket";
 import { Positions } from "@/components/Positions";
 import { NET, POOL_FEE_FALLBACK } from "@/lib/atrum/config";
@@ -120,6 +121,12 @@ export default function MarketPage() {
             key={nonce}
             account={account}
             address={address}
+            marketAddress={marketAddress}
+            market={market}
+            onChange={bump}
+          />
+          <Autopilot
+            account={account}
             marketAddress={marketAddress}
             market={market}
             onChange={bump}

@@ -82,14 +82,15 @@ export function Keeper({
 
       <details>
         <summary className="keeper-toggle">
-          Keeper controls
-          <span className="keeper-note">anyone can run these</span>
+          Manual controls
+          <span className="keeper-note">autopilot handles these — here if you want them</span>
         </summary>
 
         <p className="notice" style={{ marginTop: "0.9rem" }}>
           A batch does not advance on its own — someone has to close it, clear it, and settle
           it. The contract has no owner check on any of the three, so whoever calls first
-          moves the market on. You do not need these to place a bet.
+          moves the market on. Autopilot does this for you; these are here because the market
+          should never depend on our UI being open.
         </p>
 
       <div className="btn-row" style={{ marginTop: "0.9rem" }}>
