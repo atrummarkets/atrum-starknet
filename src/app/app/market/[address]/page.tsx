@@ -14,6 +14,7 @@ import { motion, useReducedMotion } from "motion/react";
 import type { WalletAccountV6 } from "starknet";
 import { Shell } from "@/components/Shell";
 import { Connect } from "@/components/Connect";
+import { Shield } from "@/components/Shield";
 import { Disclosure, MarketHeader } from "@/components/Market";
 import { Keeper } from "@/components/Keeper";
 import { OrderTicket } from "@/components/OrderTicket";
@@ -92,7 +93,11 @@ export default function MarketPage() {
         />
       </motion.div>
 
-      <motion.div className="grid-2" {...rise(0.16, reduced)}>
+      <motion.div {...rise(0.14, reduced)}>
+        <Shield account={account} poolFee={poolFee} onDone={bump} />
+      </motion.div>
+
+      <motion.div className="grid-2" {...rise(0.22, reduced)}>
         <OrderTicket
           account={account}
           address={address}

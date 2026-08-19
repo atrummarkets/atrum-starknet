@@ -107,7 +107,7 @@ export function OrderTicket({
 
   return (
     <div className="panel">
-      <p className="panel-label">Place a sealed order</p>
+      <p className="panel-label">Step two · place a sealed order</p>
 
       <div className="sides">
         <button
@@ -191,6 +191,11 @@ export function OrderTicket({
           This batch is closed to new orders. The next one opens once this one settles.
         </p>
       )}
+
+      <p className="notice">
+        Needs a shielded balance. If this fails with <code>NOT_REGISTERED</code> or{" "}
+        <code>BAD_ESCROW</code>, shield first and give the note ten blocks to mature.
+      </p>
 
       <p className="notice">
         The pool fee is charged per private operation and is not sponsored — it is counted in
