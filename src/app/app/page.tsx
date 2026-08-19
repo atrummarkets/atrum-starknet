@@ -1,194 +1,157 @@
 "use client";
 
 /**
- * The market page.
+ * The markets index.
  *
- * One URL does both jobs: the market is at the top so a returning trader lands on the thing
- * they came for, and the explanation sits below it for someone arriving cold. A separate
- * marketing page would mean the demo link and the product link are different, which is one
- * more thing to get wrong in a three-minute video.
+ * Read from the factory's on-chain index, so a market a stranger creates appears here
+ * without us shipping a build. That is the difference between "permissionless" as a claim
+ * and as a property.
  */
-import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { motion, useReducedMotion } from "motion/react";
-import type { WalletAccountV6 } from "starknet";
-import { Connect } from "@/components/Connect";
-import { Disclosure, MarketHeader } from "@/components/Market";
-import { Keeper } from "@/components/Keeper";
-import { OrderTicket } from "@/components/OrderTicket";
-import { Positions } from "@/components/Positions";
-import { NET, POOL_FEE_FALLBACK } from "@/lib/atrum/config";
-import { useMarket } from "@/lib/atrum/useMarket";
-import { readPoolFee } from "@/lib/atrum/wallet";
+import { Shell } from "@/components/Shell";
+import { useMarkets, type MarketCard } from "@/lib/atrum/useMarkets";
+import { AUCTION_CLASS, EXPLORER, FACTORY, NET } from "@/lib/atrum/config";
 
-const rise = (delay: number, reduced: boolean | null) =>
-  reduced
-    ? { initial: { opacity: 1 }, animate: { opacity: 1 } }
-    : {
-        initial: { opacity: 0, y: 12 },
-        animate: { opacity: 1, y: 0 },
-        transition: { duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] as const },
-      };
-
-/**
- * Gated on purpose.
- *
- * The wallet flow has never run against a real wallet, so this must not be reachable from a
- * public URL by accident. Set NEXT_PUBLIC_ENABLE_APP=1 locally to work on it; production
- * shows the coming-soon page at / and nothing here.
- */
 const APP_ENABLED = process.env.NEXT_PUBLIC_ENABLE_APP === "1";
 
-export default function Home() {
+const PHASE_LABEL: Record<string, string> = {
+  Open: "Open",
+  Revealing: "Revealing",
+  Cleared: "Cleared",
+  Resolved: "Resolved",
+  Refunding: "Refunding",
+};
+
+function timeLeft(to: number) {
+  const s = to - Math.floor(Date.now() / 1000);
+  if (s <= 0) return { text: "settling", pct: 100 };
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  // Bar fills over the last fortnight, which is roughly the horizon these markets run on.
+  const pct = Math.max(0, Math.min(100, 100 - (s / (14 * 86400)) * 100));
+  return { text: d > 0 ? `${d}d ${h}h left` : h > 0 ? `${h}h ${m}m left` : `${m}m left`, pct };
+}
+
+function Card({ m }: { m: MarketCard }) {
+  const t = timeLeft(m.settleAfter);
+  return (
+    <Link
+      href={`/app/market/${m.address}`}
+      className="card"
+      onMouseMove={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        e.currentTarget.style.setProperty("--spot-x", `${e.clientX - r.left}px`);
+        e.currentTarget.style.setProperty("--spot-y", `${e.clientY - r.top}px`);
+      }}
+    >
+      <div>
+        <div className="card-top">
+          <span>Batch #{m.batch}</span>
+          <span className={`phase phase-${m.phase.toLowerCase()}`}>
+            {PHASE_LABEL[m.phase]}
+          </span>
+        </div>
+        <p className="card-q">{m.question}</p>
+      </div>
+
+      <div className="card-foot">
+        <div className="card-price">
+          {m.clearingPrice !== null ? (
+            <>
+              <b>{m.clearingPrice}</b>
+              <span>YES</span>
+              <em>last clear</em>
+            </>
+          ) : (
+            <>
+              <b>{m.orderCount}</b>
+              <span>{m.orderCount === 1 ? "ORDER" : "ORDERS"}</span>
+              <em>sealed</em>
+            </>
+          )}
+        </div>
+        <div className="bar" aria-hidden="true">
+          <i style={{ width: `${t.pct}%` }} />
+        </div>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--text-3)" }}>
+          {t.text}
+        </span>
+      </div>
+    </Link>
+  );
+}
+
+export default function Markets() {
   const reduced = useReducedMotion();
-  const { market, error, refresh } = useMarket();
-  const [account, setAccount] = useState<WalletAccountV6 | null>(null);
-  const [address, setAddress] = useState("");
-  const [poolFee, setPoolFee] = useState<bigint>(POOL_FEE_FALLBACK[NET]);
-  const [nonce, setNonce] = useState(0);
-
-  // Read the live fee rather than trusting the constant. Wallet flows sponsor gas but not
-  // the pool fee, so a stale number here becomes an operation that fails after signing.
-  useEffect(() => {
-    void readPoolFee().then(setPoolFee).catch(() => {});
-  }, []);
-
-  const bump = useCallback(() => {
-    setNonce((n) => n + 1);
-    void refresh();
-  }, [refresh]);
+  const { markets, error } = useMarkets();
 
   if (!APP_ENABLED) {
     return (
-      <div className="app">
+      <Shell>
         <div className="panel">
           <p className="panel-label">Not open yet</p>
           <p className="notice">
             The market is still being tested. <a href="/">Back to the waitlist</a>.
           </p>
         </div>
-      </div>
+      </Shell>
     );
   }
 
   return (
-    <>
-      <div className="atmos" aria-hidden="true">
-        <div className="backdrop" />
-        <div className="fog fog-a" />
-        <div className="fog fog-b" />
+    <Shell>
+      <div className="section-head">
+        <h2>Markets</h2>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--text-3)" }}>
+          {markets ? `${markets.length} live` : "reading the chain…"}
+        </span>
       </div>
 
-      <div className="app">
-        <motion.header
-          {...rise(0, reduced)}
-          style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", flexWrap: "wrap", padding: "0.5rem 0 0.25rem" }}
-        >
-          <span className="wordmark">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/wordmark-chrome.png" alt="Atrum" />
-          </span>
-          <span className="chain">Starknet · {NET}</span>
-        </motion.header>
+      {error && (
+        <p className="msg-line" data-kind="err">
+          {error}
+        </p>
+      )}
 
-        <motion.div {...rise(0.08, reduced)}>
-          <MarketHeader market={market} />
-        </motion.div>
+      <motion.div
+        className="cards"
+        initial={reduced ? undefined : { opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+      >
+        {markets?.map((m) => (
+          <Card key={m.address} m={m} />
+        ))}
+      </motion.div>
 
-        {error && (
-          <p className="msg-line" data-kind="err">
-            {error}
-          </p>
-        )}
+      {markets?.length === 0 && (
+        <p className="notice">No markets yet. Anyone can create one.</p>
+      )}
 
-        <motion.div {...rise(0.16, reduced)}>
-          <Connect
-            account={account}
-            onConnect={(a, addr) => {
-              setAccount(a);
-              setAddress(addr);
-            }}
-          />
-        </motion.div>
-
-        <motion.div className="grid-2" {...rise(0.24, reduced)}>
-          <OrderTicket
-            account={account}
-            address={address}
-            batch={market?.batch ?? 0}
-            canTrade={market?.phase === "Open"}
-            poolFee={poolFee}
-            onPlaced={bump}
-          />
-          <div style={{ display: "grid", gap: "1.25rem", alignContent: "start" }}>
-            <Positions
-              key={nonce}
-              account={account}
-              address={address}
-              market={market}
-              onChange={bump}
-            />
-          </div>
-        </motion.div>
-
-        <motion.div {...rise(0.4, reduced)}>
-          <Disclosure />
-        </motion.div>
-
-        <motion.div {...rise(0.48, reduced)}>
-          <Keeper account={account} market={market} onChange={bump} />
-        </motion.div>
-
-        {/* ---------- how it works, for someone arriving cold ---------- */}
-        <motion.div className="panel" {...rise(0.48, reduced)}>
-          <p className="panel-label">How this works</p>
-          <ul className="props" style={{ borderTop: "none" }}>
-            <li>
-              <span className="n">01</span>
-              <span>
-                <b>Orders go in sealed.</b> The chain stores a hash of your side, price and
-                size — nothing readable. Not by other traders, not by us.
-              </span>
-            </li>
-            <li>
-              <span className="n">02</span>
-              <span>
-                <b>The batch closes, then opens.</b> Everything is already committed by then,
-                so there is no moment where someone can see your order and still act on it.
-                Front-running is not policed here; it is impossible.
-              </span>
-            </li>
-            <li>
-              <span className="n">03</span>
-              <span>
-                <b>One price for everyone.</b> The batch clears where demand meets supply.
-                Ties go to the midpoint of the crossing range, so neither side gets handed the
-                spread. Being fast buys nothing.
-              </span>
-            </li>
-            <li>
-              <span className="n">04</span>
-              <span>
-                <b>Leave whenever.</b> Buy the other side in a later batch and merge — a YES
-                and a NO together are worth exactly 1 STRK however this resolves. No
-                counterparty, no waiting for the result.
-              </span>
-            </li>
-          </ul>
-        </motion.div>
-
-        <footer>
-          <span>Built on Starknet · STRK20</span>
-          <span>
-            <a href="https://github.com/atrummarkets/atrum-starknet" target="_blank" rel="noreferrer">
-              Source
-            </a>
-            {"  ·  "}
-            <a href="https://x.com/AtrumMarkets" target="_blank" rel="noreferrer">
-              @AtrumMarkets
-            </a>
-          </span>
-        </footer>
+      <div className="panel">
+        <p className="panel-label">How this list works</p>
+        <p className="notice">
+          Every market here was deployed by the factory at{" "}
+          <a href={`${EXPLORER[NET]}/contract/${FACTORY[NET]}`} target="_blank" rel="noreferrer">
+            {FACTORY[NET].slice(0, 10)}…
+          </a>
+          , and they all run the same code —{" "}
+          <a href={`${EXPLORER[NET]}/class/${AUCTION_CLASS[NET]}`} target="_blank" rel="noreferrer">
+            class {AUCTION_CLASS[NET].slice(0, 10)}…
+          </a>
+          . The factory cannot be repointed at a different class, which is the only reason
+          reading one market tells you anything about the next.
+        </p>
+        <p className="notice notice-warn">
+          <b>Listing is not endorsement.</b> Anyone can create a market, and the creator sets
+          its outcome. What stops that being a rug: the question and resolution source are
+          fixed at creation, the outcome can only be published inside a stated window, and
+          once that window passes <em>anyone</em> can refund every holder. A creator can be
+          wrong. They cannot steal, and they cannot touch another market.
+        </p>
       </div>
-    </>
+    </Shell>
   );
 }

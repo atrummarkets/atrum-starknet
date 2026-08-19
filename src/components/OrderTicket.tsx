@@ -26,6 +26,7 @@ import { dryRun, submit, submitOrderActions } from "@/lib/atrum/wallet";
 export function OrderTicket({
   account,
   address,
+  marketAddress,
   batch,
   canTrade,
   poolFee,
@@ -33,6 +34,7 @@ export function OrderTicket({
 }: {
   account: WalletAccountV6 | null;
   address: string;
+  marketAddress: string;
   batch: number;
   canTrade: boolean;
   poolFee: bigint;
@@ -83,7 +85,7 @@ export function OrderTicket({
         submittedAt: Date.now(),
       });
 
-      const actions = submitOrderActions(commitment, escrowWei, address);
+      const actions = submitOrderActions(marketAddress, commitment, escrowWei, address);
 
       // Dry-run first. Calldata shape is the single most likely thing to be wrong, because
       // the pool deserialises it blind into privacy_invoke's parameters.

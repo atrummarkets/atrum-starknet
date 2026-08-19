@@ -21,9 +21,19 @@ export const POOL = {
   mainnet: "0x040337b1af3c663e86e333bab5a4b28da8d4652a15a69beee2b677776ffe812a",
 } as const;
 
-/** Our auction helper. Mainnet is deployed at submission time. */
-export const AUCTION = {
-  sepolia: "0x04c9fc08717d94c8d967d4cae2c1cfa7713daf5a45fb06bf900c970dd2dd7cf2",
+/**
+ * The factory. Markets are read from its on-chain index, not from a list here — so a market
+ * someone else creates shows up without us shipping a new build.
+ */
+export const FACTORY = {
+  sepolia: "0x0288f9a6edadaa43b25b2717e1acf47c1bb2b5144a0bfd8d1ff35db659dcb2cc",
+  mainnet: "0x0",
+} as const;
+
+/** The class every market from the factory runs. Immutable on the factory; shown in the UI
+ *  so a trader can check the market they are looking at is the code that was audited. */
+export const AUCTION_CLASS = {
+  sepolia: "0x19b710b57271acc96786ca052509111882c012a5e4c4fee597c3f0d8b5b1a96",
   mainnet: "0x0",
 } as const;
 

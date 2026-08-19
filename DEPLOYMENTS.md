@@ -2,41 +2,48 @@
 
 ## Sepolia — live
 
-The current market. Question and resolution source are stored on-chain and there is no
-setter for either.
+### Factory
+
+Markets are created through it and read from its on-chain index, so a market a stranger
+deploys appears in the app without anyone shipping a build.
 
 | | |
 |---|---|
-| **AtrumAuction** | [`0x04c9fc08717d94c8d967d4cae2c1cfa7713daf5a45fb06bf900c970dd2dd7cf2`](https://sepolia.voyager.online/contract/0x04c9fc08717d94c8d967d4cae2c1cfa7713daf5a45fb06bf900c970dd2dd7cf2) |
-| Class hash | `0x19b710b57271acc96786ca052509111882c012a5e4c4fee597c3f0d8b5b1a96` |
+| **AtrumFactory** | [`0x0288f9a6edadaa43b25b2717e1acf47c1bb2b5144a0bfd8d1ff35db659dcb2cc`](https://sepolia.voyager.online/contract/0x0288f9a6edadaa43b25b2717e1acf47c1bb2b5144a0bfd8d1ff35db659dcb2cc) |
+| Factory class | `0x670c7e322b0378425331907507d56d9dd5c850f82aeae323cb38bc2164b7b9a` |
+| **Auction class** — every market runs this | `0x19b710b57271acc96786ca052509111882c012a5e4c4fee597c3f0d8b5b1a96` |
 | STRK20 pool | `0x0254a6b2997ef52e9f830ce1f543f6b29768295e8d17e2267d672c552cfe0d91` |
 | Collateral | STRK — `0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d` |
 | Pool fee | 2 STRK per private operation (measured from `get_fee_amount`) |
 
-**Question:** *Will STRK close below 0.0225 USD on 24 Aug 2026 00:00 UTC?*
-**Resolution source:** *Pragma STRK/USD median on Starknet mainnet at the stated time.*
-**settle_after:** `1787529600` — 24 Aug 2026 00:00 UTC. No resolution before this.
-**resolve_deadline:** `1787659200` — 25 Aug 2026 12:00 UTC. After this anyone may call
-`force_refund` and every holder is refunded exactly what they paid.
+The auction class hash is set in the factory's constructor and there is **no setter**. That
+is the whole security argument for trusting a market you did not deploy: every market from
+this factory runs the same code, so reading one tells you something about the next. A
+repointable factory could start producing drainers and its history would not warn you.
 
-The question is deliberate: nobody at a Starknet hackathon can take the bearish side of it
-in public. That is the product, demonstrated rather than described.
+### Markets, created through the factory
 
-### Superseded Sepolia deploys
+| # | Question | Address |
+|---|---|---|
+| 0 | Will STRK close below 0.0225 USD on 24 Aug 2026 00:00 UTC? | [`0x18f4b0ba…8922`](https://sepolia.voyager.online/contract/0x18f4b0baf66f0014c27113b08b3e452010e5947d22d8c1281e37b28cbfa8922) |
+| 1 | Will ETH close above 2000 USD on 26 Aug 2026 00:00 UTC? | [`0x2fe0781f…4a5`](https://sepolia.voyager.online/contract/0x2fe0781f4935c30f9f5fea64c25fce2b5fe810349be4038daeaa61bc6f6c4a5) |
+| 2 | Will Starknet daily transactions exceed 500k on 28 Aug 2026? | [`0x10fc953a…040`](https://sepolia.voyager.online/contract/0x10fc953a3e37fbc33961a6b154c6aaa1d4f1af093f1774896041e7ba4330040) |
 
-Kept so the history is legible rather than tidy. Each was replaced because the contract
-gained something, not because it failed.
+Creation is permissionless and the creator becomes their own market's resolver. What stops
+that being a rug: the question and resolution source are fixed at creation, the outcome can
+only be published inside a stated window, and once that window passes **anyone** can refund
+every holder. A creator can be wrong. They cannot steal, and they cannot touch another
+market.
 
-| Address | Why superseded |
+### Superseded
+
+Kept so the history is legible rather than tidy.
+
+| Address | Why |
 |---|---|
 | `0x0696e6e0…4924` | single-batch — no positions, no early exit |
-| `0x0440ac9d…5e37` | multi-batch, but no committed question — an auction, not a market |
-
-Two of those were deployed from a **stale release artifact**: `scarb build` writes the `dev`
-profile while `sncast declare` reads `release`, so a plain build declares code you are not
-looking at. Both times it surfaced as an unrelated runtime error. `scripts/deploy.sh` now
-forces `--profile release` and prints the constructor the artifact actually has before
-touching a network.
+| `0x0440ac9d…5e37` | multi-batch, no committed question — an auction, not a market |
+| `0x04c9fc08…7cf2` | had the question, but deployed by hand rather than through the factory |
 
 ## Mainnet — not yet
 

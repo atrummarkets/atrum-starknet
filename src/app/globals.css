@@ -704,3 +704,161 @@ details:focus-within .keeper-toggle { color: var(--text); }
   color: var(--atrum-iron);
   font-size: 0.68rem;
 }
+
+/* ---------- product chrome ---------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem 1.75rem;
+  flex-wrap: wrap;
+  padding: 0.4rem 0 1rem;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 0.4rem;
+}
+.topbar .wordmark { margin-right: auto; }
+
+.nav { display: flex; gap: 1.25rem; }
+.nav-link {
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  text-decoration: none;
+  padding-bottom: 0.2em;
+  border-bottom: 1px solid transparent;
+  transition: color 130ms ease, border-color 130ms ease;
+}
+.nav-link:hover { color: var(--text); }
+.nav-link[aria-current="page"] {
+  color: var(--atrum-ivory);
+  border-bottom-color: var(--strk-orange);
+}
+.nav-link:focus-visible { outline: 2px solid var(--strk-orange); outline-offset: 3px; }
+
+/* ---------- market cards ---------- */
+
+.cards {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1.6rem;
+  min-height: 14rem;
+  padding: 1.35rem;
+  background: color-mix(in srgb, var(--bg-panel) 82%, transparent);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  text-decoration: none;
+  color: var(--text);
+  overflow: hidden;
+  backdrop-filter: blur(10px);
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), border-color 180ms ease;
+}
+.card:hover { transform: translateY(-3px); border-color: var(--rule-strong); }
+.card:focus-visible { outline: 2px solid var(--strk-orange); outline-offset: 3px; }
+
+/* A cursor-tracked highlight. One ornament, and it only exists on hover. */
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 200ms ease;
+  background: radial-gradient(
+    16rem circle at var(--spot-x, 50%) var(--spot-y, 0%),
+    rgba(236, 121, 107, 0.11),
+    transparent 65%
+  );
+}
+.card:hover::before { opacity: 1; }
+
+.card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.card-q {
+  font-family: var(--font-display);
+  font-size: 1.28rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  color: var(--atrum-ivory);
+  margin: 0.7rem 0 0;
+  text-wrap: balance;
+}
+
+.card-foot { display: grid; gap: 0.55rem; }
+
+.card-price {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.card-price b {
+  font-family: var(--font-mono);
+  font-size: 2.1rem;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--atrum-ivory);
+}
+.card-price span {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  letter-spacing: 0.14em;
+  color: var(--text-2);
+}
+.card-price em {
+  margin-left: auto;
+  font-style: normal;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--text-3);
+}
+
+/* Time left, as a bar rather than a number nobody parses at a glance. */
+.bar { height: 2px; background: var(--rule); overflow: hidden; border-radius: 1px; }
+.bar i { display: block; height: 100%; background: var(--strk-orange); }
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 0.5rem 0 0;
+}
+.section-head h2 {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.back-link {
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  text-decoration: none;
+}
+.back-link:hover { color: var(--strk-orange); }

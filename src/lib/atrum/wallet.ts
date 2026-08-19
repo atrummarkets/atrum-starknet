@@ -21,7 +21,7 @@ import { WalletAccountV6, RpcProvider, compareVersions, walletV6 } from "starkne
  */
 import type { WalletWithStarknetFeatures } from "@starknet-io/get-starknet-wallet-standard-v6/features";
 import type { STRK20_ACTION } from "@starknet-io/types-js";
-import { AUCTION, CHAIN_ID, NET, POOL, POOL_FEE_FALLBACK, STRK } from "./config";
+import { CHAIN_ID, NET, POOL, POOL_FEE_FALLBACK, STRK } from "./config";
 
 const RPC = {
   sepolia: "https://api.cartridge.gg/x/starknet/sepolia",
@@ -118,6 +118,7 @@ export function shieldActions(amount: bigint): STRK20_ACTION[] {
  * until reveal; the contract only needs the commitment now.
  */
 export function submitOrderActions(
+  market: string,
   commitment: bigint,
   units: bigint,
   userAddress: string,
@@ -126,7 +127,7 @@ export function submitOrderActions(
     { type: "transfer", token: STRK, amount: "OPEN", recipient: userAddress },
     {
       type: "invoke",
-      contract: AUCTION[NET],
+      contract: market,
       calldata: [
         "0", // AuctionOperation::Submit
         commitment.toString(),
@@ -145,6 +146,7 @@ export function submitOrderActions(
 
 /** Withdraw a settled balance into an open note. The amount is public; the owner is not. */
 export function withdrawActions(
+  market: string,
   holderSecret: string,
   userAddress: string,
 ): STRK20_ACTION[] {
@@ -152,7 +154,7 @@ export function withdrawActions(
     { type: "transfer", token: STRK, amount: "OPEN", recipient: userAddress },
     {
       type: "invoke",
-      contract: AUCTION[NET],
+      contract: market,
       calldata: [
         "1", // AuctionOperation::Claim
         "0",

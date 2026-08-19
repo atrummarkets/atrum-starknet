@@ -9,7 +9,7 @@
  * paragraph nobody reads.
  */
 import type { Market } from "@/lib/atrum/useMarket";
-import { EXPLORER, NET, AUCTION } from "@/lib/atrum/config";
+import { EXPLORER, NET } from "@/lib/atrum/config";
 
 const PHASE_COPY: Record<string, { cls: string; what: string }> = {
   Open: { cls: "phase-open", what: "Orders are being accepted. Nobody can read them." },
@@ -28,7 +28,7 @@ function countdown(to: number): string {
   return d > 0 ? `${d}d ${h}h` : h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-export function MarketHeader({ market }: { market: Market | null }) {
+export function MarketHeader({ market, address }: { market: Market | null; address: string }) {
   if (!market) {
     return (
       <div className="panel">
@@ -83,8 +83,8 @@ export function MarketHeader({ market }: { market: Market | null }) {
         <div className="stat-row">
           <dt>Contract</dt>
           <dd style={{ fontSize: "0.8rem" }}>
-            <a href={`${EXPLORER[NET]}/contract/${AUCTION[NET]}`} target="_blank" rel="noreferrer">
-              {AUCTION[NET].slice(0, 10)}…{AUCTION[NET].slice(-6)}
+            <a href={`${EXPLORER[NET]}/contract/${address}`} target="_blank" rel="noreferrer">
+              {address.slice(0, 10)}…{address.slice(-6)}
             </a>
           </dd>
         </div>

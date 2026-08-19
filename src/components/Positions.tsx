@@ -21,9 +21,7 @@ import {
 } from "@/lib/atrum/orders";
 import { readPosition, type Market, type Position } from "@/lib/atrum/useMarket";
 import { submit, withdrawActions } from "@/lib/atrum/wallet";
-import { AUCTION, NET } from "@/lib/atrum/config";
-import { RpcProvider } from "starknet";
-import { provider } from "@/lib/atrum/wallet";
+
 
 const NETNAME = process.env.NEXT_PUBLIC_STARKNET_NETWORK ?? "sepolia";
 
@@ -31,11 +29,12 @@ const NETNAME = process.env.NEXT_PUBLIC_STARKNET_NETWORK ?? "sepolia";
  *  privacy_invoke, and not routed through the pool. Anyone may make them. */
 async function directCall(
   account: WalletAccountV6,
+  market: string,
   entrypoint: string,
   calldata: string[],
 ) {
   const { transaction_hash } = await account.execute([
-    { contractAddress: AUCTION[NET], entrypoint, calldata },
+    { contractAddress: market, entrypoint, calldata },
   ]);
   return transaction_hash;
 }
@@ -43,11 +42,13 @@ async function directCall(
 export function Positions({
   account,
   address,
+  marketAddress,
   market,
   onChange,
 }: {
   account: WalletAccountV6 | null;
   address: string;
+  marketAddress: string;
   market: Market | null;
   onChange: () => void;
 }) {
@@ -60,11 +61,11 @@ export function Positions({
   const reload = useCallback(async () => {
     setOrders(listOrders(NETNAME));
     try {
-      setPos(await readPosition(computeHolder(holderSecret())));
+      setPos(await readPosition(marketAddress, computeHolder(holderSecret())));
     } catch {
       /* chain unreachable; leave the last known value rather than blanking it */
     }
-  }, []);
+  }, [marketAddress]);
 
   useEffect(() => {
     void reload();
@@ -121,7 +122,7 @@ export function Positions({
               disabled={!account || busy !== null}
               onClick={() =>
                 void run("Merge", () =>
-                  directCall(account!, "merge", [
+                  directCall(account!, marketAddress, "merge", [
                     BigInt(holderSecret()).toString(),
                     (BigInt(mergeUnits || "0")).toString(),
                   ]),
@@ -159,7 +160,7 @@ export function Positions({
               disabled={!account || busy !== null}
               onClick={() =>
                 void run("Redeem", () =>
-                  directCall(account!, "redeem", [BigInt(holderSecret()).toString()]),
+                  directCall(account!, marketAddress, "redeem", [BigInt(holderSecret()).toString()]),
                 )
               }
             >
@@ -172,7 +173,7 @@ export function Positions({
             disabled={!account || busy !== null || !pos || pos.collateral === 0n}
             onClick={() =>
               void run("Withdraw", () =>
-                submit(account!, withdrawActions(holderSecret(), address)),
+                submit(account!, withdrawActions(marketAddress, holderSecret(), address)),
               )
             }
           >
@@ -217,7 +218,7 @@ export function Positions({
                     disabled={!account || busy !== null}
                     onClick={() =>
                       void run("Reveal", async () => {
-                        const tx = await directCall(account!, "reveal", [
+                        const tx = await directCall(account!, marketAddress, "reveal", [
                           BigInt(o.holderSecret).toString(),
                           o.side.toString(),
                           o.limit.toString(),

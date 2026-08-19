@@ -17,15 +17,17 @@
  */
 import { useState } from "react";
 import type { WalletAccountV6 } from "starknet";
-import { AUCTION, NET } from "@/lib/atrum/config";
+
 import type { Market } from "@/lib/atrum/useMarket";
 
 export function Keeper({
   account,
+  address,
   market,
   onChange,
 }: {
   account: WalletAccountV6 | null;
+  address: string;
   market: Market | null;
   onChange: () => void;
 }) {
@@ -38,7 +40,7 @@ export function Keeper({
     setMsg({ k: "", t: "" });
     try {
       const { transaction_hash } = await account.execute([
-        { contractAddress: AUCTION[NET], entrypoint, calldata },
+        { contractAddress: address, entrypoint, calldata },
       ]);
       setMsg({ k: "ok", t: `${label} sent. ${transaction_hash.slice(0, 12)}…` });
       onChange();

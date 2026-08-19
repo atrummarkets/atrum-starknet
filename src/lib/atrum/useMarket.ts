@@ -7,7 +7,7 @@
  * that displays its own optimistic guesses is a UI that lies to people about money.
  */
 import { useCallback, useEffect, useState } from "react";
-import { AUCTION, NET } from "./config";
+
 import { provider } from "./wallet";
 
 export type Phase = "Open" | "Revealing" | "Cleared" | "Resolved" | "Refunding";
@@ -54,33 +54,29 @@ function feltToAscii(felt: string, bytes: number): string {
   return s;
 }
 
-async function call(fn: string, calldata: string[] = []): Promise<string[]> {
-  return provider().callContract({
-    contractAddress: AUCTION[NET],
-    entrypoint: fn,
-    calldata,
-  });
+async function call(market: string, fn: string, calldata: string[] = []): Promise<string[]> {
+  return provider().callContract({ contractAddress: market, entrypoint: fn, calldata });
 }
 
-export function useMarket(pollMs = 12_000) {
+export function useMarket(marketAddress: string, pollMs = 12_000) {
   const [market, setMarket] = useState<Market | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
       const [q, src, ph, b, oc, sa, rd] = await Promise.all([
-        call("get_question"),
-        call("get_resolution_source"),
-        call("get_phase"),
-        call("get_batch"),
-        call("get_outcome"),
-        call("get_settle_after"),
-        call("get_resolve_deadline"),
+        call(marketAddress, "get_question"),
+        call(marketAddress, "get_resolution_source"),
+        call(marketAddress, "get_phase"),
+        call(marketAddress, "get_batch"),
+        call(marketAddress, "get_outcome"),
+        call(marketAddress, "get_settle_after"),
+        call(marketAddress, "get_resolve_deadline"),
       ]);
       const batch = Number(BigInt(b[0]));
       const [cnt, price] = await Promise.all([
-        call("get_order_count", [batch.toString()]),
-        call("get_clearing_price", [batch.toString()]),
+        call(marketAddress, "get_order_count", [batch.toString()]),
+        call(marketAddress, "get_clearing_price", [batch.toString()]),
       ]);
       const p = Number(BigInt(price[0]));
       setMarket({
@@ -99,7 +95,7 @@ export function useMarket(pollMs = 12_000) {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not read the market.");
     }
-  }, []);
+  }, [marketAddress]);
 
   useEffect(() => {
     void refresh();
@@ -110,8 +106,8 @@ export function useMarket(pollMs = 12_000) {
   return { market, error, refresh };
 }
 
-export async function readPosition(holder: bigint): Promise<Position> {
-  const r = await call("get_position", [holder.toString()]);
+export async function readPosition(marketAddress: string, holder: bigint): Promise<Position> {
+  const r = await call(marketAddress, "get_position", [holder.toString()]);
   return {
     yesUnits: BigInt(r[0]),
     noUnits: BigInt(r[1]),
