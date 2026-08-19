@@ -20,10 +20,13 @@ import { shieldActions, submit } from "@/lib/atrum/wallet";
 export function Shield({
   account,
   poolFee,
+  registered,
   onDone,
 }: {
   account: WalletAccountV6 | null;
   poolFee: bigint;
+  /** Shielding fails with NOT_REGISTERED before a viewing key exists, so the button waits. */
+  registered: boolean;
   onDone: () => void;
 }) {
   const [amount, setAmount] = useState("5");
@@ -82,9 +85,8 @@ export function Shield({
       <p className="panel-label">Step one · shield STRK into the pool</p>
 
       <p className="notice">
-        Orders are funded from a shielded balance, so this comes first. Depositing is also
-        what registers you with the pool — placing an order beforehand fails with{" "}
-        <code>NOT_REGISTERED</code>.
+        Orders are funded from a shielded balance, so this comes after registering and before
+        ordering. The deposit itself is public; what you do with the balance afterwards is not.
       </p>
 
       <div className="field" style={{ marginTop: "1rem" }}>
@@ -104,7 +106,7 @@ export function Shield({
       </div>
 
       <div className="btn-row">
-        <button className="btn" disabled={!account || busy || wei <= 0n} onClick={() => void shield()}>
+        <button className="btn" disabled={!account || !registered || busy || wei <= 0n} onClick={() => void shield()}>
           {busy ? "Working…" : "Shield"}
         </button>
         <button className="btn btn-ghost btn-sm" disabled={!account || busy} onClick={() => void checkBalance()}>
@@ -123,6 +125,13 @@ export function Shield({
             <dd>{fmtStrk(poolFee)} STRK</dd>
           </div>
         </dl>
+      )}
+
+      {!registered && (
+        <p className="notice notice-warn">
+          Register first — a deposit needs a viewing key on file, and without one this fails
+          with <code>NOT_REGISTERED</code>.
+        </p>
       )}
 
       <p className="notice notice-warn">
