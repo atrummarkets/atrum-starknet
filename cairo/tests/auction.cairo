@@ -391,3 +391,35 @@ fn resolver_loses_the_right_to_decide_after_the_deadline() {
     start_cheat_caller_address(c.auction.contract_address, OWNER());
     c.auction.resolve(1);
 }
+
+/// The constructor refuses a market with no question.
+///
+/// Tested where the rule LIVES rather than through the factory: a failed `deploy_syscall`
+/// surfaces as a VM exception that `should_panic` cannot catch, whereas deploying directly
+/// hands back the panic data to inspect. Same rule, testable form.
+#[test]
+fn a_market_with_no_question_cannot_be_deployed() {
+    let erc20_class = declare("MockErc20").unwrap().contract_class();
+    let (token_addr, _) = erc20_class.deploy(@array![]).unwrap();
+    let auction_class = declare("AtrumAuction").unwrap().contract_class();
+
+    let mut args: Array<felt252> = array![];
+    args.append(POOL().into());
+    args.append(token_addr.into());
+    args.append(OWNER().into());
+    let empty: ByteArray = "";
+    let src: ByteArray = "Some source";
+    empty.serialize(ref args);
+    src.serialize(ref args);
+    args.append(SETTLE_AFTER.into());
+    args.append(RESOLVE_DEADLINE.into());
+
+    match auction_class.deploy(@args) {
+        Result::Ok(_) => panic!("a market with no question should not deploy"),
+        Result::Err(panic_data) => {
+            // A market with no question is an auction on abstract tokens. The contract says
+            // so itself rather than leaving a UI to enforce it.
+            assert(*panic_data.at(0) == 'EMPTY_QUESTION', 'wrong reason');
+        },
+    }
+}

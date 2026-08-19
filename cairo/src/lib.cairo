@@ -114,6 +114,8 @@
 //!
 //! NOT PRODUCTION. Unaudited, owner-resolved, no oracle. See the README.
 
+pub mod factory;
+
 use starknet::ContractAddress;
 
 /// Must match `privacy::objects::OpenNoteDeposit` field-for-field (positional Serde).
