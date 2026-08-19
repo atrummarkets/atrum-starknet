@@ -30,8 +30,25 @@ esac
 TOKEN="${STRK20_TOKEN:?set STRK20_TOKEN to the collateral token address}"
 OWNER="${STRK20_OWNER:?set STRK20_OWNER to the address allowed to resolve the market}"
 
-echo "==> building"
-scarb build
+# ALWAYS build the release profile before declaring. `scarb build` writes `dev`, while
+# declare reads `release` -- so a plain build leaves a stale release artifact and you
+# declare code you are not looking at. That has bitten this project twice: once deploying a
+# single-batch contract after adding multi-batch, once deploying a 3-argument constructor
+# after adding the question. Both presented as unrelated runtime errors.
+echo "==> building (release, the profile declare actually reads)"
+scarb --profile release build
+
+echo "==> constructor the artifact ACTUALLY has:"
+python3 - <<'PYEOF'
+import json, glob
+f = glob.glob("target/release/*_AtrumAuction.contract_class.json")[0]
+d = json.load(open(f))
+abi = d["abi"] if isinstance(d["abi"], list) else json.loads(d["abi"])
+for e in abi:
+    if e.get("type") == "constructor":
+        for i in e["inputs"]:
+            print(f"     {i['name']:20} {i['type'].split('::')[-1]}")
+PYEOF
 
 echo "==> declaring (once per code version; reuses the class hash if unchanged)"
 CLASS_HASH=$(sncast --profile "$NET" declare \
