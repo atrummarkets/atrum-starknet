@@ -8,7 +8,7 @@
  * entire point of this route — a dapp holding viewing keys is a dapp that can be breached
  * into deanonymising its own users.
  */
-import { WalletAccountV6, RpcProvider, compareVersions, walletV6 } from "starknet";
+import { WalletAccountV6, RpcProvider, compareVersions, num, walletV6 } from "starknet";
 /**
  * The wallet type comes from the copy of get-starknet-wallet-standard that STARKNET.JS
  * itself depends on (`-v6`), not the standalone package.
@@ -97,47 +97,53 @@ export async function readPoolFee(): Promise<bigint> {
  * second prompt reads as a duplicate-transaction bug and users reject it.
  */
 export function shieldActions(amount: bigint): STRK20_ACTION[] {
-  return [{ type: "deposit", token: STRK, amount: amount.toString() }];
+  return [{ type: "deposit", token: STRK, amount: num.toHex(amount) }];
 }
 
 /**
- * Submit a sealed order.
+ * Submit a sealed order. THREE actions, one transaction.
  *
- * Two actions, one transaction:
- *   1. a `transfer` of "OPEN" creates the open note the helper's output lands in
- *   2. an `invoke` calls our helper, with the pool address and note id substituted
- *
- * `"OPEN"`, `"${poolAddress}"` and `"${openNoteIds[0]}"` are LITERAL STRINGS the wallet
- * replaces. Hex-normalising them breaks the substitution silently.
+ * HEX, NOT DECIMAL. Every real value goes through `num.toHex`. Passing decimal strings is
+ * what produced INVALID_REQUEST_PAYLOAD -- the wallet rejects the payload before anything
+ * reaches a chain. But `"OPEN"`, `"${poolAddress}"` and `"${openNoteIds[0]}"` are LITERAL
+ * strings the wallet substitutes, so hex-normalising THOSE breaks the substitution just as
+ * silently. Real values hex, placeholders untouched.
  *
  * Calldata order must match `privacy_invoke`'s Cairo signature exactly, because the pool
  * deserialises it straight into those parameters:
  *   operation, commitment, token, pool_address, units, salt, side, limit, holder_secret, note_id
  *
- * The order's real values (side, limit, salt, holder_secret) are ZERO here. They stay sealed
- * until reveal; the contract only needs the commitment now.
+ * The order's real terms -- side, limit, salt, holder -- are ZERO here. They stay sealed
+ * until reveal; the contract needs only the commitment now. That is the entire point.
  */
 export function submitOrderActions(
   market: string,
   commitment: bigint,
+  escrow: bigint,
   units: bigint,
   userAddress: string,
 ): STRK20_ACTION[] {
   return [
+    // 1. THE ESCROW. Without this the helper's balance delta is zero and `do_submit`
+    //    reverts on BAD_ESCROW. Leaving it out was a real bug: the docs' swap example
+    //    implies the pool infers the withdraw from calldata, and it does not.
+    { type: "withdraw", token: STRK, amount: num.toHex(escrow), recipient: market },
+    // 2. The open note any output is credited into.
     { type: "transfer", token: STRK, amount: "OPEN", recipient: userAddress },
+    // 3. The helper call.
     {
       type: "invoke",
       contract: market,
       calldata: [
-        "0", // AuctionOperation::Submit
-        commitment.toString(),
-        STRK,
+        num.toHex(0), // AuctionOperation::Submit
+        num.toHex(commitment),
+        num.toHex(STRK),
         "${poolAddress}",
-        units.toString(),
-        "0", // salt      — sealed
-        "0", // side      — sealed
-        "0", // limit     — sealed
-        "0", // holder    — sealed
+        num.toHex(units),
+        num.toHex(0), // salt   -- sealed
+        num.toHex(0), // side   -- sealed
+        num.toHex(0), // limit  -- sealed
+        num.toHex(0), // holder -- sealed
         "${openNoteIds[0]}",
       ],
     },
@@ -150,21 +156,24 @@ export function withdrawActions(
   holderSecret: string,
   userAddress: string,
 ): STRK20_ACTION[] {
+  // No `withdraw` action here, unlike submit: nothing leaves your shielded balance. The
+  // helper already holds the collateral and is paying it back, so the only slot needed is
+  // the open note it credits.
   return [
     { type: "transfer", token: STRK, amount: "OPEN", recipient: userAddress },
     {
       type: "invoke",
       contract: market,
       calldata: [
-        "1", // AuctionOperation::Claim
-        "0",
-        STRK,
+        num.toHex(1), // AuctionOperation::Claim
+        num.toHex(0),
+        num.toHex(STRK),
         "${poolAddress}",
-        "0",
-        "0",
-        "0",
-        "0",
-        BigInt(holderSecret).toString(),
+        num.toHex(0),
+        num.toHex(0),
+        num.toHex(0),
+        num.toHex(0),
+        num.toHex(BigInt(holderSecret)),
         "${openNoteIds[0]}",
       ],
     },

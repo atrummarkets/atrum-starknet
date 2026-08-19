@@ -85,7 +85,7 @@ export function OrderTicket({
         submittedAt: Date.now(),
       });
 
-      const actions = submitOrderActions(marketAddress, commitment, escrowWei, address);
+      const actions = submitOrderActions(marketAddress, commitment, escrowWei, unitsBig, address);
 
       // Dry-run first. Calldata shape is the single most likely thing to be wrong, because
       // the pool deserialises it blind into privacy_invoke's parameters.
