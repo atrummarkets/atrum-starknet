@@ -9,11 +9,15 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@starknet-io/get-starknet-discovery": "6.0.3",
+    "@starknet-io/get-starknet-wallet-standard": "6.0.3",
+    "@starknet-io/types-js": "0.10.3",
     "motion": "^13.1.0",
     "next": "16.3.1",
     "pg": "^8.13.1",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "starknet": "10.4.0"
   },
   "devDependencies": {
     "@types/node": "^22",
