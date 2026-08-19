@@ -1,14 +1,19 @@
 "use client";
 
 /**
- * The keeper panel — closing, clearing and settling a batch.
+ * The keeper controls — closing, clearing and settling a batch.
  *
- * These are exposed to EVERYONE, not hidden behind an admin flag, because the contract makes
- * them permissionless and a UI that pretends otherwise misrepresents the trust model. Anyone
- * can drive the batch forward; nobody has to wait for us to be awake.
+ * TUCKED AWAY, BUT NOT HIDDEN. These are operational, not trading: nobody placing a bet
+ * needs them, and sitting them beside the order ticket made the page read like a control
+ * panel instead of a market.
  *
- * The one thing that is not permissionless is `resolve`, and that is stated rather than
- * styled to look the same.
+ * They stay reachable by anyone, though, because the contract genuinely has no owner check
+ * on them — a market must not stall waiting for us to wake up. Collapsing them behind a
+ * disclosure is a layout decision; putting them behind an ADMIN flag would be a claim about
+ * the trust model, and a false one.
+ *
+ * `force_refund` is the exception and does NOT stay collapsed: once the deadline passes it
+ * surfaces on its own, because at that point it is the most important thing on the page.
  */
 import { useState } from "react";
 import type { WalletAccountV6 } from "starknet";
@@ -49,10 +54,43 @@ export function Keeper({
     market !== null && Math.floor(Date.now() / 1000) > market.resolveDeadline;
 
   return (
-    <div className="panel">
-      <p className="panel-label">Move the batch on · anyone can do this</p>
+    <div className="panel panel-tight">
+      {/* Surfaced unconditionally: past the deadline, a refund is the headline, not an
+          advanced option. */}
+      {pastDeadline && phase !== "Resolved" && phase !== "Refunding" && (
+        <>
+          <p className="panel-label" style={{ color: "var(--atrum-ember)" }}>
+            Resolver missed the deadline
+          </p>
+          <p className="notice notice-warn" style={{ marginTop: 0 }}>
+            No outcome was published in time. Anyone may now open refunds, and every holder
+            gets back exactly what they paid. This is the check on the one power we kept.
+          </p>
+          <div className="btn-row" style={{ margin: "0.9rem 0 0.4rem" }}>
+            <button
+              className="btn btn-sm"
+              disabled={!account || busy !== null}
+              onClick={() => void call("Force refund", "force_refund")}
+            >
+              Force refund
+            </button>
+          </div>
+        </>
+      )}
 
-      <div className="btn-row">
+      <details>
+        <summary className="keeper-toggle">
+          Keeper controls
+          <span className="keeper-note">anyone can run these</span>
+        </summary>
+
+        <p className="notice" style={{ marginTop: "0.9rem" }}>
+          A batch does not advance on its own — someone has to close it, clear it, and settle
+          it. The contract has no owner check on any of the three, so whoever calls first
+          moves the market on. You do not need these to place a bet.
+        </p>
+
+      <div className="btn-row" style={{ marginTop: "0.9rem" }}>
         <button
           className="btn btn-sm btn-ghost"
           disabled={!account || busy !== null || phase !== "Open"}
@@ -76,30 +114,11 @@ export function Keeper({
         </button>
       </div>
 
-      <p className="notice">
-        Closing, clearing and settling take no permission — the contract has no owner check on
-        any of them. Whoever calls first moves the market on, so it cannot stall because we are
-        asleep.
-      </p>
-
-      {pastDeadline && phase !== "Resolved" && phase !== "Refunding" && (
-        <>
-          <div className="btn-row" style={{ marginTop: "1rem" }}>
-            <button
-              className="btn btn-sm"
-              disabled={!account || busy !== null}
-              onClick={() => void call("Force refund", "force_refund")}
-            >
-              Force refund — resolver missed the deadline
-            </button>
-          </div>
-          <p className="notice notice-warn">
-            The resolve deadline has passed with no outcome. Anyone may now open refunds, and
-            every holder gets back exactly what they paid. This is the check on the one power
-            we kept.
-          </p>
-        </>
-      )}
+        <p className="notice">
+          The one thing that is <em>not</em> permissionless is publishing the outcome — that is
+          a named address. If it never does, the refund above is how you get out.
+        </p>
+      </details>
 
       {msg.t && (
         <p className="msg-line" data-kind={msg.k}>

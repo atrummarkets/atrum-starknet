@@ -130,12 +130,12 @@ export default function Home() {
           </div>
         </motion.div>
 
-        <motion.div {...rise(0.32, reduced)}>
-          <Keeper account={account} market={market} onChange={bump} />
-        </motion.div>
-
         <motion.div {...rise(0.4, reduced)}>
           <Disclosure />
+        </motion.div>
+
+        <motion.div {...rise(0.48, reduced)}>
+          <Keeper account={account} market={market} onChange={bump} />
         </motion.div>
 
         {/* ---------- how it works, for someone arriving cold ---------- */}

@@ -671,3 +671,36 @@ footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 
 .disclose td:last-child { font-family: var(--font-mono); font-size: 0.82rem; white-space: nowrap; }
 .yes-public { color: var(--atrum-ember); }
 .is-hidden { color: var(--strk-orange); }
+
+/* ---------- keeper disclosure ---------- */
+
+.keeper-toggle {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  transition: color 130ms ease;
+}
+.keeper-toggle::-webkit-details-marker { display: none; }
+.keeper-toggle::before {
+  content: "+";
+  font-size: 0.9rem;
+  line-height: 1;
+  color: var(--text-3);
+}
+details[open] .keeper-toggle::before { content: "–"; }
+.keeper-toggle:hover { color: var(--text-2); }
+details:focus-within .keeper-toggle { color: var(--text); }
+
+.keeper-note {
+  letter-spacing: 0.08em;
+  text-transform: none;
+  color: var(--atrum-iron);
+  font-size: 0.68rem;
+}
