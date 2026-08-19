@@ -18,8 +18,8 @@ use atrum_auction::{
     compute_holder,
 };
 use snforge_std::{
-    ContractClassTrait, DeclareResultTrait, declare, start_cheat_caller_address,
-    stop_cheat_caller_address,
+    ContractClassTrait, DeclareResultTrait, declare, start_cheat_block_timestamp_global,
+    start_cheat_caller_address, stop_cheat_caller_address,
 };
 use starknet::ContractAddress;
 use super::mock_erc20::{IMockErc20Dispatcher, IMockErc20DispatcherTrait};
@@ -30,6 +30,11 @@ fn POOL() -> ContractAddress {
 fn OWNER() -> ContractAddress {
     0x9002.try_into().unwrap()
 }
+
+/// The event settles at t=1000, and the resolver has until t=2000 to say so. After that
+/// anyone can open refunds.
+const SETTLE_AFTER: u64 = 1000;
+const RESOLVE_DEADLINE: u64 = 2000;
 
 #[derive(Copy, Drop)]
 struct Ctx {
@@ -47,6 +52,14 @@ fn setup() -> Ctx {
     args.append(POOL().into());
     args.append(token_addr.into());
     args.append(OWNER().into());
+    // A real question and a real resolution source: the contract refuses to deploy without
+    // them, which is the point.
+    let q: ByteArray = "Will it rain in Delhi on 1 Sep 2026?";
+    let src: ByteArray = "IMD official daily rainfall record for Safdarjung station";
+    q.serialize(ref args);
+    src.serialize(ref args);
+    args.append(SETTLE_AFTER.into());
+    args.append(RESOLVE_DEADLINE.into());
     let (auction_addr, _) = auction_class.deploy(@args).unwrap();
 
     Ctx {
@@ -212,6 +225,7 @@ fn solvency_every_matched_unit_is_funded_exactly_100() {
     c.auction.clear();
     c.auction.settle_batch(array![]);
 
+    start_cheat_block_timestamp_global(1500); // inside the resolve window
     start_cheat_caller_address(c.auction.contract_address, OWNER());
     c.auction.resolve(1); // YES wins
     stop_cheat_caller_address(c.auction.contract_address);
@@ -244,6 +258,7 @@ fn withdrawing_pays_into_an_open_note_and_zeroes_the_balance() {
     c.auction.clear();
     c.auction.settle_batch(array![]);
 
+    start_cheat_block_timestamp_global(1500);
     start_cheat_caller_address(c.auction.contract_address, OWNER());
     c.auction.resolve(1);
     stop_cheat_caller_address(c.auction.contract_address);
@@ -301,4 +316,78 @@ fn only_the_pool_may_invoke() {
         .privacy_invoke(
             AuctionOperation::Submit, 'x', c.token.contract_address, POOL(), 1, 0, 0, 0, 0, 0,
         );
+}
+
+/// THE TRUST BOUND.
+///
+/// A resolver who goes quiet must not be able to strand the market. Past the deadline
+/// anyone can open refunds, and every holder gets back exactly what they paid — no winner,
+/// no loser, no discretion.
+#[test]
+fn an_abandoned_market_refunds_everyone_at_cost() {
+    let c = setup();
+    let alice = compute_holder('alice');
+    let bob = compute_holder('bob');
+
+    let (_, bal) = submit(c, 0, 70, 'alice', 1, 70, 1, 'ax');
+    let (_, _) = submit(c, bal, 40, 'bob', 2, 60, 1, 'bx');
+
+    c.auction.close_batch();
+    c.auction.reveal('alice', 1, 70, 1, 'ax');
+    c.auction.reveal('bob', 2, 60, 1, 'bx');
+    c.auction.clear();
+    c.auction.settle_batch(array![]);
+
+    // Cleared at 65: alice paid 65 of her 70, bob paid 35 of his 40.
+    assert(c.auction.get_position(alice).staked == 65, 'alice staked 65');
+    assert(c.auction.get_position(bob).staked == 35, 'bob staked 35');
+
+    // The resolver never resolves. Deadline passes.
+    start_cheat_block_timestamp_global(RESOLVE_DEADLINE + 1);
+    // Anyone. No permission, no owner cheat — that is the guarantee.
+    c.auction.force_refund();
+
+    c.auction.redeem('alice');
+    c.auction.redeem('bob');
+
+    let pa = c.auction.get_position(alice);
+    let pb = c.auction.get_position(bob);
+    // 5 refunded at settle + 65 staked back = 70, exactly what she put in.
+    assert(pa.collateral == 70, 'alice made whole');
+    assert(pb.collateral == 40, 'bob made whole');
+    assert(pa.collateral + pb.collateral == 110, 'nothing created or lost');
+}
+
+#[test]
+#[should_panic(expected: 'TOO_EARLY')]
+fn cannot_resolve_before_the_event_has_happened() {
+    let c = setup();
+    let (_, bal) = submit(c, 0, 70, 'alice', 1, 70, 1, 'ax');
+    let (_, _) = submit(c, bal, 40, 'bob', 2, 60, 1, 'bx');
+    c.auction.close_batch();
+    c.auction.reveal('alice', 1, 70, 1, 'ax');
+    c.auction.reveal('bob', 2, 60, 1, 'bx');
+    c.auction.clear();
+    c.auction.settle_batch(array![]);
+
+    start_cheat_block_timestamp_global(SETTLE_AFTER - 1);
+    start_cheat_caller_address(c.auction.contract_address, OWNER());
+    c.auction.resolve(1);
+}
+
+#[test]
+#[should_panic(expected: 'DEADLINE_PASSED')]
+fn resolver_loses_the_right_to_decide_after_the_deadline() {
+    let c = setup();
+    let (_, bal) = submit(c, 0, 70, 'alice', 1, 70, 1, 'ax');
+    let (_, _) = submit(c, bal, 40, 'bob', 2, 60, 1, 'bx');
+    c.auction.close_batch();
+    c.auction.reveal('alice', 1, 70, 1, 'ax');
+    c.auction.reveal('bob', 2, 60, 1, 'bx');
+    c.auction.clear();
+    c.auction.settle_batch(array![]);
+
+    start_cheat_block_timestamp_global(RESOLVE_DEADLINE + 1);
+    start_cheat_caller_address(c.auction.contract_address, OWNER());
+    c.auction.resolve(1);
 }

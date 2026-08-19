@@ -71,6 +71,29 @@
 //!     to a person. A trader who wants batch-to-batch unlinkability uses a fresh pseudonym
 //!     and gives up carrying a position across batches; that trade is theirs to make.
 //!
+//! WHAT THE MARKET IS ABOUT, AND WHO DECIDES
+//!
+//! A market with no question is not a prediction market, it is an auction on abstract
+//! tokens. So the question and the resolution criterion are stored ON CHAIN at construction
+//! and there is no function to change either. Not for tidiness: a market whose wording can
+//! be edited after orders are placed is a rug, and one whose resolver can be swapped is the
+//! same rug wearing a hat.
+//!
+//! Resolution is a NAMED ADDRESS, not an oracle, and that is a disclosed limitation rather
+//! than a hidden one. A price oracle can settle "will BTC be above X" and cannot settle
+//! "will party Y win" — no feed for it exists. An optimistic oracle is the honest answer for
+//! the second kind and is not in this version.
+//!
+//! WHAT BOUNDS THE TRUST: THE ABANDONMENT REFUND.
+//!
+//! `resolve` is only callable inside a window — after the event has happened, and before a
+//! published deadline. Once that deadline passes with no outcome, ANYONE can call
+//! `force_refund` and every holder gets back exactly what they paid.
+//!
+//! So the resolver can pick the WRONG answer. They cannot steal, and they cannot freeze
+//! funds forever by going quiet. Two of the three ways a trusted resolver ruins you are
+//! closed by a timeout rather than by cryptography, which is worth more than it sounds.
+//!
 //! ONE CONTRACT PER MARKET
 //!
 //! This contract is one market, and that is the intended shape rather than a shortcut.
@@ -128,6 +151,9 @@ pub enum Phase {
     Cleared,
     /// Terminal for the whole market, not just this batch. No further batches open.
     Resolved,
+    /// Terminal, and reached WITHOUT an outcome: the resolver failed to resolve before the
+    /// deadline, so positions are being refunded at cost. Anyone can trigger this.
+    Refunding,
 }
 
 /// A holder's standing position, keyed by pseudonym rather than by address.
@@ -139,6 +165,13 @@ pub struct Position {
     /// including before the market resolves — which is what makes an early exit real
     /// rather than notional.
     pub collateral: u128,
+    /// What the holder has actually paid for the units they still hold.
+    ///
+    /// Only used by the abandonment refund: if the resolver never resolves, everyone gets
+    /// back what they put in, and "what they put in" has to be a number the contract knows
+    /// rather than one it infers. Total `staked` across all holders equals the collateral
+    /// sitting behind matched positions, so refunding it is exactly solvent.
+    pub staked: u128,
 }
 
 #[derive(Serde, Copy, Drop, PartialEq, Debug, starknet::Store)]
@@ -184,6 +217,11 @@ pub mod errors {
     pub const NOT_ENOUGH_UNITS: felt252 = 'NOT_ENOUGH_UNITS';
     pub const NOTHING_TO_WITHDRAW: felt252 = 'NOTHING_TO_WITHDRAW';
     pub const OFF_GRID: felt252 = 'OFF_GRID';
+    pub const TOO_EARLY: felt252 = 'TOO_EARLY';
+    pub const DEADLINE_PASSED: felt252 = 'DEADLINE_PASSED';
+    pub const DEADLINE_NOT_PASSED: felt252 = 'DEADLINE_NOT_PASSED';
+    pub const BAD_SCHEDULE: felt252 = 'BAD_SCHEDULE';
+    pub const EMPTY_QUESTION: felt252 = 'EMPTY_QUESTION';
 }
 
 /// Domain separator, so an auction commitment can never collide with a hash from another
@@ -273,8 +311,19 @@ pub trait IAtrumAuction<TState> {
     /// without a counterparty and without waiting for resolution.
     fn merge(ref self: TState, holder_secret: felt252, units: u128);
 
-    /// Settle the market. Owner-only in this version; an oracle replaces it later.
+    /// Settle the market. Only the named resolver, and only inside the published window:
+    /// not before the event has happened, and not after the deadline.
     fn resolve(ref self: TState, outcome: u8);
+
+    /// THE TRUST BOUND. Once the resolve deadline passes with no outcome, anyone may call
+    /// this and every holder is refunded exactly what they paid. A resolver who goes quiet
+    /// cannot strand the market.
+    fn force_refund(ref self: TState);
+
+    fn get_question(self: @TState) -> ByteArray;
+    fn get_resolution_source(self: @TState) -> ByteArray;
+    fn get_settle_after(self: @TState) -> u64;
+    fn get_resolve_deadline(self: @TState) -> u64;
 
     /// Credit the winning side's payout to the holder's collateral balance.
     fn redeem(ref self: TState, holder_secret: felt252);
@@ -294,7 +343,9 @@ pub mod AtrumAuction {
     use starknet::storage::{
         Map, StoragePathEntry, StoragePointerReadAccess, StoragePointerWriteAccess,
     };
-    use starknet::{ContractAddress, get_caller_address, get_contract_address};
+    use starknet::{
+        ContractAddress, get_block_timestamp, get_caller_address, get_contract_address,
+    };
     use super::{
         AuctionOperation, IErc20Dispatcher, IErc20DispatcherTrait, OpenNoteDeposit, Order, Phase,
         Position, TICK, compute_commitment, compute_holder, errors,
@@ -305,6 +356,14 @@ pub mod AtrumAuction {
         pool: ContractAddress,
         token: ContractAddress,
         owner: ContractAddress,
+        /// Immutable in practice: written once in the constructor, with no setter anywhere.
+        question: ByteArray,
+        resolution_source: ByteArray,
+        /// No resolution before this — a market settled before its event has happened is
+        /// settled against information the traders could not have had.
+        settle_after: u64,
+        /// After this, `resolve` is closed and `force_refund` is open to anyone.
+        resolve_deadline: u64,
         batch: u64,
         phase: Phase,
         /// 0 = unresolved, 1 = YES, 2 = NO.
@@ -331,8 +390,13 @@ pub mod AtrumAuction {
         BatchSettled: BatchSettled,
         Merged: Merged,
         Resolved: Resolved,
+        RefundOpened: RefundOpened,
         Withdrawn: Withdrawn,
     }
+
+    /// The resolver failed to resolve in time and the market is now refunding at cost.
+    #[derive(Drop, starknet::Event)]
+    struct RefundOpened {}
 
     /// Carries no side, limit or holder — those are still sealed. `escrow` is public
     /// regardless, because the pool measured it on-chain.
@@ -394,10 +458,24 @@ pub mod AtrumAuction {
         pool: ContractAddress,
         token: ContractAddress,
         owner: ContractAddress,
+        question: ByteArray,
+        resolution_source: ByteArray,
+        settle_after: u64,
+        resolve_deadline: u64,
     ) {
+        // A market with no question is an auction on abstract tokens. Refuse to deploy one.
+        assert(question.len() > 0, errors::EMPTY_QUESTION);
+        assert(resolution_source.len() > 0, errors::EMPTY_QUESTION);
+        // The refund window has to actually exist, or the trust bound is decorative.
+        assert(resolve_deadline > settle_after, errors::BAD_SCHEDULE);
+
         self.pool.write(pool);
         self.token.write(token);
         self.owner.write(owner);
+        self.question.write(question);
+        self.resolution_source.write(resolution_source);
+        self.settle_after.write(settle_after);
+        self.resolve_deadline.write(resolve_deadline);
         self.batch.write(0);
         self.phase.write(Phase::Open);
         self.outcome.write(0);
@@ -531,7 +609,16 @@ pub mod AtrumAuction {
             // needs no counterparty and no outcome. It is the exit.
             pos.yes_units -= units;
             pos.no_units -= units;
-            pos.collateral += units * 100_u128;
+            let paid_out = units * 100_u128;
+            pos.collateral += paid_out;
+            // The set has been cashed, so it is no longer owed a refund. Saturating,
+            // because a profitable merge pays out MORE than the pair cost and `staked`
+            // must never wrap.
+            pos.staked = if pos.staked > paid_out {
+                pos.staked - paid_out
+            } else {
+                0
+            };
             self.positions.entry(holder).write(pos);
 
             self.emit(Merged { holder, units });
@@ -543,25 +630,66 @@ pub mod AtrumAuction {
             // Only between batches, never mid-batch: resolving while orders are sealed
             // would settle a market against information the traders could not act on.
             assert(self.phase.read() == Phase::Open, errors::WRONG_PHASE);
+
+            let now = get_block_timestamp();
+            assert(now >= self.settle_after.read(), errors::TOO_EARLY);
+            // Past the deadline the resolver has lost the right to decide, and traders have
+            // gained the right to their money back. Both halves matter.
+            assert(now <= self.resolve_deadline.read(), errors::DEADLINE_PASSED);
+
             self.outcome.write(outcome);
             self.phase.write(Phase::Resolved);
             self.emit(Resolved { outcome });
         }
 
+        fn force_refund(ref self: ContractState) {
+            let phase = self.phase.read();
+            assert(phase != Phase::Resolved && phase != Phase::Refunding, errors::WRONG_PHASE);
+            assert(
+                get_block_timestamp() > self.resolve_deadline.read(),
+                errors::DEADLINE_NOT_PASSED,
+            );
+            // No caller check on purpose. If this needed permission it would not be a
+            // guarantee, it would be another thing to trust the operator for.
+            self.phase.write(Phase::Refunding);
+            self.emit(RefundOpened {});
+        }
+
+        fn get_question(self: @ContractState) -> ByteArray {
+            self.question.read()
+        }
+        fn get_resolution_source(self: @ContractState) -> ByteArray {
+            self.resolution_source.read()
+        }
+        fn get_settle_after(self: @ContractState) -> u64 {
+            self.settle_after.read()
+        }
+        fn get_resolve_deadline(self: @ContractState) -> u64 {
+            self.resolve_deadline.read()
+        }
+
         fn redeem(ref self: ContractState, holder_secret: felt252) {
-            assert(self.phase.read() == Phase::Resolved, errors::WRONG_PHASE);
+            let phase = self.phase.read();
             let holder = compute_holder(holder_secret);
             let mut pos = self.positions.entry(holder).read();
-            let outcome = self.outcome.read();
 
-            let winning = if outcome == 1 {
-                pos.yes_units
+            if phase == Phase::Refunding {
+                // Abandoned market. Everyone gets back exactly what they paid — no winner,
+                // no loser, and no discretion for anyone to exercise.
+                pos.collateral += pos.staked;
             } else {
-                pos.no_units
-            };
+                assert(phase == Phase::Resolved, errors::WRONG_PHASE);
+                let winning = if self.outcome.read() == 1 {
+                    pos.yes_units
+                } else {
+                    pos.no_units
+                };
+                pos.collateral += winning * 100_u128;
+            }
+
             pos.yes_units = 0;
             pos.no_units = 0;
-            pos.collateral += winning * 100_u128;
+            pos.staked = 0;
             self.positions.entry(holder).write(pos);
         }
 
@@ -690,6 +818,7 @@ pub mod AtrumAuction {
                 pos.no_units += order.filled;
             }
             pos.collateral += refund;
+            pos.staked += spent;
             self.positions.entry(order.holder).write(pos);
         }
 

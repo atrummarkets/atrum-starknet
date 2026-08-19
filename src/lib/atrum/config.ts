@@ -23,7 +23,7 @@ export const POOL = {
 
 /** Our auction helper. Mainnet is deployed at submission time. */
 export const AUCTION = {
-  sepolia: "0x0696e6e0c408707b2782e6e54571a2f8e3a69ce4f3b8b09ca52c8f13bd624924",
+  sepolia: "0x0440ac9d0615b17590ff588f6468d784cdc8ec5245f39711c518dbac56275e37",
   mainnet: "0x0",
 } as const;
 
