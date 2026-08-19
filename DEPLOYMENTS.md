@@ -2,15 +2,41 @@
 
 ## Sepolia — live
 
+The current market. Question and resolution source are stored on-chain and there is no
+setter for either.
+
 | | |
 |---|---|
-| **AtrumAuction** | [`0x0696e6e0c408707b2782e6e54571a2f8e3a69ce4f3b8b09ca52c8f13bd624924`](https://sepolia.voyager.online/contract/0x0696e6e0c408707b2782e6e54571a2f8e3a69ce4f3b8b09ca52c8f13bd624924) |
-| Class hash | `0x29562faaa55f236786f7d4a958f07949db723ea5c09af11d990b1fdf5447c12` |
+| **AtrumAuction** | [`0x04c9fc08717d94c8d967d4cae2c1cfa7713daf5a45fb06bf900c970dd2dd7cf2`](https://sepolia.voyager.online/contract/0x04c9fc08717d94c8d967d4cae2c1cfa7713daf5a45fb06bf900c970dd2dd7cf2) |
+| Class hash | `0x19b710b57271acc96786ca052509111882c012a5e4c4fee597c3f0d8b5b1a96` |
 | STRK20 pool | `0x0254a6b2997ef52e9f830ce1f543f6b29768295e8d17e2267d672c552cfe0d91` |
 | Collateral | STRK — `0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d` |
-| Deploy tx | [`0x00afc8071028d8c05c7f7b8c13f013955c13f828edf63d0e3bee31e296ed4fb7`](https://sepolia.voyager.online/tx/0x00afc8071028d8c05c7f7b8c13f013955c13f828edf63d0e3bee31e296ed4fb7) |
+| Pool fee | 2 STRK per private operation (measured from `get_fee_amount`) |
 
-Verified on deploy: `get_phase` → `Phase::Open`, `get_batch` → 0, `get_order_count(0)` → 0.
+**Question:** *Will STRK close below 0.0225 USD on 24 Aug 2026 00:00 UTC?*
+**Resolution source:** *Pragma STRK/USD median on Starknet mainnet at the stated time.*
+**settle_after:** `1787529600` — 24 Aug 2026 00:00 UTC. No resolution before this.
+**resolve_deadline:** `1787659200` — 25 Aug 2026 12:00 UTC. After this anyone may call
+`force_refund` and every holder is refunded exactly what they paid.
+
+The question is deliberate: nobody at a Starknet hackathon can take the bearish side of it
+in public. That is the product, demonstrated rather than described.
+
+### Superseded Sepolia deploys
+
+Kept so the history is legible rather than tidy. Each was replaced because the contract
+gained something, not because it failed.
+
+| Address | Why superseded |
+|---|---|
+| `0x0696e6e0…4924` | single-batch — no positions, no early exit |
+| `0x0440ac9d…5e37` | multi-batch, but no committed question — an auction, not a market |
+
+Two of those were deployed from a **stale release artifact**: `scarb build` writes the `dev`
+profile while `sncast declare` reads `release`, so a plain build declares code you are not
+looking at. Both times it surfaced as an unrelated runtime error. `scripts/deploy.sh` now
+forces `--profile release` and prints the constructor the artifact actually has before
+touching a network.
 
 ## Mainnet — not yet
 

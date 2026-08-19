@@ -107,7 +107,22 @@ Full measurement register: [`V2_EVIDENCE.md`](https://github.com/atrummarkets/at
 
 ## Status
 
-Sprint build in progress. Nothing here holds real value yet.
+Sprint build in progress. **Live on Starknet Sepolia**, nothing on mainnet yet, nothing here
+holds real value.
+
+The current market — question and resolution source stored on-chain, with no setter for
+either:
+
+> **Will STRK close below 0.0225 USD on 24 Aug 2026 00:00 UTC?**
+> Resolved from the Pragma STRK/USD median on Starknet mainnet at the stated time.
+
+Contract: [`0x04c9fc08…7cf2`](https://sepolia.voyager.online/contract/0x04c9fc08717d94c8d967d4cae2c1cfa7713daf5a45fb06bf900c970dd2dd7cf2)
+· 13 tests · see [DEPLOYMENTS.md](DEPLOYMENTS.md)
+
+**Who can trade:** anyone. The only function gated on an address is `resolve`. Submitting,
+revealing, clearing, settling, merging, redeeming and withdrawing are all permissionless —
+and if the resolver never resolves, `force_refund` is permissionless too, so the one power
+we keep has a public check on it.
 
 ## Honest limitations
 
