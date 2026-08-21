@@ -24,6 +24,8 @@ import {
   holderSecret,
   listOrders,
   markOnChain,
+  markRevealed,
+  markSettled,
   type StoredOrder,
 } from "@/lib/atrum/orders";
 import { readPosition, type Position } from "@/lib/atrum/useMarket";
@@ -48,11 +50,14 @@ export default function Portfolio() {
         markets.map(async (m) => {
           const local = listOrders(NETNAME, m.address);
 
-          // Confirm against the contract rather than trusting our own bookkeeping — a
-          // relayed transaction can land while the client loses its hash.
+          // Reconcile against the contract rather than trusting our own bookkeeping. A
+          // relayed transaction can land while the client loses its hash, and an order can
+          // settle without the browser ever being open to see it.
+          //
+          // Order layout: escrow, batch, revealed, side, limit, units, filled, holder, settled
           await Promise.all(
             local
-              .filter((o) => !o.onChain)
+              .filter((o) => !o.settled)
               .map(async (o) => {
                 try {
                   const r = await provider().callContract({
@@ -61,13 +66,17 @@ export default function Portfolio() {
                     calldata: [o.commitment],
                   });
                   if (BigInt(r[0]) !== 0n) markOnChain(o.commitment);
+                  if (BigInt(r[2]) === 1n) markRevealed(o.commitment);
+                  if (BigInt(r[8]) === 1n) markSettled(o.commitment);
                 } catch {
-                  /* leave unconfirmed */
+                  /* leave as-is rather than guessing */
                 }
               }),
           );
 
-          const open = listOrders(NETNAME, m.address).filter((o) => o.onChain);
+          // "Open" means still at risk. A settled bet became shares or a refund, and its
+          // stake is represented by the position below rather than as money riding.
+          const open = listOrders(NETNAME, m.address).filter((o) => o.onChain && !o.settled);
           const p = await readPosition(m.address, holder);
           return { m, p, open };
         }),

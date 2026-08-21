@@ -37,6 +37,9 @@ export type StoredOrder = {
   /** Set once the CONTRACT confirms it holds this commitment. This is the only thing that
    *  proves an order is real. */
   onChain?: boolean;
+  /** Set once the contract reports the order settled. A settled bet is no longer AT RISK --
+   *  its stake became shares or a refund -- so counting it as riding overstates exposure. */
+  settled?: boolean;
   submittedAt: number;
   revealed?: boolean;
 };
@@ -120,6 +123,16 @@ export function markOnChain(commitment: string) {
   const o = s.orders.find((x) => x.commitment === commitment);
   if (o && !o.onChain) {
     o.onChain = true;
+    write(s);
+  }
+}
+
+/** Record that the contract considers this order finished. */
+export function markSettled(commitment: string) {
+  const s = read();
+  const o = s.orders.find((x) => x.commitment === commitment);
+  if (o && !o.settled) {
+    o.settled = true;
     write(s);
   }
 }

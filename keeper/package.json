@@ -1,0 +1,12 @@
+{
+  "name": "atrum-keeper",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node keeper.mjs",
+    "once": "node keeper.mjs --once"
+  },
+  "dependencies": {
+    "starknet": "10.4.0"
+  }
+}

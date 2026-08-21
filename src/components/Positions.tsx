@@ -13,6 +13,7 @@ import type { WalletAccountV6 } from "starknet";
 import { fmtStrk } from "@/lib/atrum/config";
 import {
   abandoned,
+  markSettled,
   computeHolder,
   exportBackup,
   holderSecret,
@@ -75,7 +76,7 @@ export function Positions({
     const local = listOrders(NETNAME, marketAddress);
     await Promise.all(
       local
-        .filter((o) => !o.onChain)
+        .filter((o) => !o.settled)
         .map(async (o) => {
           try {
             const r = await provider().callContract({
@@ -85,6 +86,8 @@ export function Positions({
             });
             // A non-zero escrow means the contract really holds it.
             if (BigInt(r[0]) !== 0n) markOnChain(o.commitment);
+            if (BigInt(r[2]) === 1n) markRevealed(o.commitment);
+            if (BigInt(r[8]) === 1n) markSettled(o.commitment);
           } catch {
             /* leave it unconfirmed rather than guessing */
           }
@@ -247,7 +250,13 @@ export function Positions({
                   style={!o.onChain ? { opacity: 0.55 } : undefined}
                 >
                   {/* Status comes from the CONTRACT, not from whether we captured a hash. */}
-                  {!o.onChain ? "not on-chain" : o.revealed ? "revealed" : "sealed"}
+                  {!o.onChain
+                    ? "not on-chain"
+                    : o.settled
+                      ? "settled"
+                      : o.revealed
+                        ? "revealed"
+                        : "sealed"}
                 </span>
                 {o.onChain && !o.revealed && market?.phase === "Revealing" && (
                   <button
