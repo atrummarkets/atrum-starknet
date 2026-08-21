@@ -66,6 +66,15 @@ export function Autopilot({
   // A batch can be advanced once per phase; without this the poll fires the same call again
   // while the first is still in flight and the second reverts on WRONG_PHASE.
   const inFlight = useRef(false);
+  /**
+   * The phase we last acted on.
+   *
+   * The in-flight guard alone was not enough. Market state is polled every 12 seconds, so
+   * after a call SUCCEEDS the UI can still be holding the old phase — and autopilot fires
+   * again against a contract that has already moved on. That is where WRONG_PHASE came from:
+   * a reveal attempted after the round had already cleared.
+   */
+  const actedOn = useRef<string | null>(null);
 
   const mine = listOrders(NETNAME).filter((o) => o.batch === market?.batch);
   // Only orders the contract confirms it holds. Revealing one it does not know about
@@ -142,6 +151,8 @@ export function Autopilot({
     async (j: Job) => {
       if (!account || inFlight.current) return;
       inFlight.current = true;
+      // Remember what we acted on so a stale poll cannot repeat it.
+      actedOn.current = `${market?.batch}:${market?.phase}:${j.entrypoint}`;
       setRunning(j.label);
       try {
         const { transaction_hash } = await account.execute([
@@ -167,10 +178,13 @@ export function Autopilot({
 
   useEffect(() => {
     if (!armed || !account || !job || running) return;
+    // Refuse to repeat a call for a phase we have already acted on. The contract will have
+    // moved on even if our copy of its state has not.
+    if (actedOn.current === `${market?.batch}:${market?.phase}:${job.entrypoint}`) return;
     // A beat of delay so a user who just landed sees WHAT is about to happen before it does.
     const t = setTimeout(() => void run(job), 2500);
     return () => clearTimeout(t);
-  }, [armed, account, job, running, run]);
+  }, [armed, account, job, running, run, market?.batch, market?.phase]);
 
   if (!market) return null;
 
