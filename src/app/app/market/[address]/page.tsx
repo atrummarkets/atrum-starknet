@@ -20,6 +20,8 @@ import { Disclosure, MarketHeader } from "@/components/Market";
 import { Keeper } from "@/components/Keeper";
 import { Autopilot } from "@/components/Autopilot";
 import { PrivacyProof } from "@/components/PrivacyProof";
+import { PriceHistory } from "@/components/PriceHistory";
+import { usePriceHistory } from "@/lib/atrum/usePriceHistory";
 import { OrderTicket } from "@/components/OrderTicket";
 import { Positions } from "@/components/Positions";
 import { NET, POOL_FEE_FALLBACK } from "@/lib/atrum/config";
@@ -48,6 +50,7 @@ export default function MarketPage() {
   const [poolFee, setPoolFee] = useState<bigint>(POOL_FEE_FALLBACK[NET]);
   const [nonce, setNonce] = useState(0);
   const [registered, setRegistered] = useState(false);
+  const history = usePriceHistory(marketAddress, market?.batch ?? 0);
 
   useEffect(() => {
     void readPoolFee().then(setPoolFee).catch(() => {});
@@ -95,6 +98,10 @@ export default function MarketPage() {
             setAddress(addr);
           }}
         />
+      </motion.div>
+
+      <motion.div {...rise(0.1, reduced)}>
+        <PriceHistory points={history} />
       </motion.div>
 
       {address && (

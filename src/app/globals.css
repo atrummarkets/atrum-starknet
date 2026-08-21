@@ -23,6 +23,13 @@
   --strk-orange-lit: #FF9382;
   --strk-deep:       #7A2F26;
 
+  /* Chart marks are a different job from UI accents, so they get their own step.
+     #EC796B is OKLCH L 0.704 -- correct for a button, outside the 0.48-0.67 band a
+     dark-mode data mark wants. #E2664A sits at 0.48 and clears contrast against the
+     panel surface (#12151B). Computed with the dataviz validator, not eyeballed. */
+  --viz-accent:      #E2664A;
+  --viz-grid:        rgba(232, 228, 220, 0.07);
+
   --bg:          var(--atrum-void);
   --bg-raised:   var(--atrum-basalt);
   --bg-panel:    var(--atrum-graphite);
