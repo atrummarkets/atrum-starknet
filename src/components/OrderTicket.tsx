@@ -103,17 +103,20 @@ export function OrderTicket({
       setMsg({ k: "ok", t: `Sealed and submitted. ${tx.slice(0, 12)}…` });
       onPlaced();
 
-      // Confirm it actually landed rather than trusting the submit. A relayed hash takes a
-      // while to appear, so a timeout means "not visible yet", never "failed".
-      setStage("Waiting for it to appear on-chain");
-      const res = await waitBounded(tx, 120_000);
-      setStage("");
-      setMsg(
-        res.status === "confirmed"
-          ? { k: "ok", t: `Order is on-chain. ${tx.slice(0, 12)}…` }
-          : { k: "", t: `Submitted, not visible at the RPC yet. ${tx.slice(0, 12)}…` },
-      );
-      onPlaced();
+      // Confirmation runs in the BACKGROUND and does not hold the button.
+      //
+      // The order is placed the moment `submit` resolves; blocking on confirmation kept the
+      // button reading "Sealing…" for up to two minutes AFTER the order was already
+      // on-chain. A control that says it is still working when it is finished is worse than
+      // no feedback -- it invites the user to try again and double-submit.
+      void waitBounded(tx, 120_000).then((res) => {
+        setMsg(
+          res.status === "confirmed"
+            ? { k: "ok", t: `Order is on-chain. ${tx.slice(0, 12)}…` }
+            : { k: "ok", t: `Submitted. Not indexed at the RPC yet — that is normal for a relayed transaction. ${tx.slice(0, 12)}…` },
+        );
+        onPlaced();
+      });
     } catch (e) {
       setStage("");
       setMsg({
@@ -121,6 +124,7 @@ export function OrderTicket({
         t: e instanceof Error ? e.message : "Could not place the order.",
       });
     } finally {
+      // Cleared here rather than after confirmation: the work the user asked for is done.
       setBusy(false);
     }
   }
