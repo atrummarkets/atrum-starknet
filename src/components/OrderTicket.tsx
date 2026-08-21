@@ -32,7 +32,7 @@ import {
   randomFelt,
   saveOrder,
 } from "@/lib/atrum/orders";
-import { submit, submitOrderActions, waitBounded } from "@/lib/atrum/wallet";
+import { submit, submitOrderActions, waitForCommitment } from "@/lib/atrum/wallet";
 
 /** A limit generous enough to fill in almost any batch. You will usually pay less. */
 const DEFAULT_YES_LIMIT = 90;
@@ -118,17 +118,32 @@ export function OrderTicket({
         submittedAt: Date.now(),
       });
 
-      setStage("Your wallet is sealing the bet — this takes a moment");
-      const tx = await submit(
-        account,
-        submitOrderActions(marketAddress, commitment, stake, units, address),
-      );
-      markTx("0x" + commitment.toString(16), tx);
-      setStage("");
-      setMsg({ k: "ok", t: "Bet placed. Nobody can read it." });
-      onPlaced();
+      const commitmentHex = "0x" + commitment.toString(16);
+      setStage("Your wallet is sealing the bet — this takes up to a minute");
 
-      void waitBounded(tx, 120_000).then(() => onPlaced());
+      // THE CHAIN IS THE SOURCE OF TRUTH, NOT THE PROMISE.
+      //
+      // `strk20InvokeTransaction` lands the transaction and then, often, never resolves.
+      // Awaiting it left the button stuck on "Sealing…" over bets that had already
+      // succeeded — three times out of three. So the submit is fired and NOT awaited as the
+      // signal; what we wait on is the contract confirming it holds the commitment.
+      submit(account, submitOrderActions(marketAddress, commitment, stake, units, address))
+        .then((tx) => markTx(commitmentHex, tx))
+        .catch(() => {
+          /* the poll below decides; a rejected promise does not mean a failed order */
+        });
+
+      const landed = await waitForCommitment(marketAddress, commitmentHex, 180_000);
+      setStage("");
+      if (landed) {
+        setMsg({ k: "ok", t: "Bet placed and sealed. Nobody can read it." });
+      } else {
+        setMsg({
+          k: "err",
+          t: "No bet appeared on-chain within three minutes. Nothing was staked — check your wallet before retrying.",
+        });
+      }
+      onPlaced();
     } catch (e) {
       setStage("");
       setMsg({ k: "err", t: e instanceof Error ? e.message : "Could not place the bet." });

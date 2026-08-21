@@ -201,6 +201,41 @@ export async function submit(account: WalletAccountV6, actions: STRK20_ACTION[])
 }
 
 /**
+ * Wait for the CONTRACT to hold a commitment.
+ *
+ * This exists because `strk20InvokeTransaction` reliably lands the transaction and
+ * unreliably resolves its promise — observed three times out of three. The relayer submits,
+ * the order appears on-chain, and the browser never hears back, leaving a button stuck on
+ * "Sealing…" over an order that already succeeded.
+ *
+ * The commitment is deterministic and known before signing, so the chain can be asked
+ * directly. Polling a view call is not elegant; it is correct, which the promise is not.
+ */
+export async function waitForCommitment(
+  market: string,
+  commitment: string,
+  ms = 180_000,
+): Promise<boolean> {
+  const p = provider();
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    try {
+      const r = await p.callContract({
+        contractAddress: market,
+        entrypoint: "get_order",
+        calldata: [commitment],
+      });
+      // A non-zero escrow means the contract really holds it.
+      if (BigInt(r[0]) !== 0n) return true;
+    } catch {
+      /* RPC hiccup; keep waiting rather than reporting failure */
+    }
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  return false;
+}
+
+/**
  * Wait, but bounded.
  *
  * Every private transaction is relayed, and a relayed hash can take a while to appear at the
