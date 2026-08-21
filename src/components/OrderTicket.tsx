@@ -21,7 +21,7 @@ import {
   randomFelt,
   saveOrder,
 } from "@/lib/atrum/orders";
-import { dryRun, submit, submitOrderActions } from "@/lib/atrum/wallet";
+import { submit, submitOrderActions, waitBounded } from "@/lib/atrum/wallet";
 
 export function OrderTicket({
   account,
@@ -44,6 +44,8 @@ export function OrderTicket({
   const [limit, setLimit] = useState(60);
   const [units, setUnits] = useState("1");
   const [busy, setBusy] = useState(false);
+  /** Staged, because proving takes real time and a frozen button reads as a hang. */
+  const [stage, setStage] = useState<string>("");
   const [msg, setMsg] = useState<{ k: "ok" | "err" | ""; t: string }>({ k: "", t: "" });
 
   const unitsBig = useMemo(() => {
@@ -87,15 +89,33 @@ export function OrderTicket({
 
       const actions = submitOrderActions(marketAddress, commitment, escrowWei, unitsBig, address);
 
-      // Dry-run first. Calldata shape is the single most likely thing to be wrong, because
-      // the pool deserialises it blind into privacy_invoke's parameters.
-      await dryRun(account, actions);
-
+      // NO DRY RUN HERE, deliberately.
+      //
+      // `strk20PrepareInvoke` builds AND PROVES the transaction. Calling it before every
+      // submit means proving twice for one order -- doubling the slowest step and, in at
+      // least one wallet, raising a second confirmation that reads as the order having
+      // already gone through. It is the right tool for finding a calldata bug once, not for
+      // the happy path forever.
+      setStage("Proving in your wallet — this takes a moment");
       const tx = await submit(account, actions);
       markTx("0x" + commitment.toString(16), tx);
+      setStage("");
       setMsg({ k: "ok", t: `Sealed and submitted. ${tx.slice(0, 12)}…` });
       onPlaced();
+
+      // Confirm it actually landed rather than trusting the submit. A relayed hash takes a
+      // while to appear, so a timeout means "not visible yet", never "failed".
+      setStage("Waiting for it to appear on-chain");
+      const res = await waitBounded(tx, 120_000);
+      setStage("");
+      setMsg(
+        res.status === "confirmed"
+          ? { k: "ok", t: `Order is on-chain. ${tx.slice(0, 12)}…` }
+          : { k: "", t: `Submitted, not visible at the RPC yet. ${tx.slice(0, 12)}…` },
+      );
+      onPlaced();
     } catch (e) {
+      setStage("");
       setMsg({
         k: "err",
         t: e instanceof Error ? e.message : "Could not place the order.",
@@ -201,6 +221,8 @@ export function OrderTicket({
         The pool fee is charged per private operation and is not sponsored — it is counted in
         the total above rather than surprising you after you sign.
       </p>
+
+      {stage && <p className="msg-line">{stage}…</p>}
 
       {msg.t && (
         <p className="msg-line" data-kind={msg.k}>
