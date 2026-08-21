@@ -250,6 +250,20 @@ pub const HOLDER_TAG: felt252 = 'ATRUM_HOLDER:V1';
 /// quoted in probabilities, 5-point steps are the granularity people actually think in.
 pub const TICK: u8 = 5;
 
+/// Token base units per PRICE POINT.
+///
+/// The contract's arithmetic is in price points: a lot is worth 100 of them at resolution,
+/// and a limit of 60 costs 60 of them. Real escrow arrives as a token amount, so the two
+/// have to be reconciled somewhere, and doing it in the contract keeps the client from
+/// having to know the scale.
+///
+/// 10^16 means one lot pays 100 * 10^16 = 10^18 = 1 STRK, so a price point is 0.01 STRK.
+///
+/// This was missing, and its absence was not a rounding problem: `reveal` compared a real
+/// escrow of 6 * 10^17 against a required 60 and rejected every order that had actually been
+/// funded correctly.
+pub const UNIT_SCALE: u128 = 10_000_000_000_000_000;
+
 /// A holder's pseudonym. Derived from a secret they keep, so the chain sees a stable
 /// identity across batches without ever seeing a person behind it.
 pub fn compute_holder(holder_secret: felt252) -> felt252 {
@@ -350,7 +364,7 @@ pub mod AtrumAuction {
     };
     use super::{
         AuctionOperation, IErc20Dispatcher, IErc20DispatcherTrait, OpenNoteDeposit, Order, Phase,
-        Position, TICK, compute_commitment, compute_holder, errors,
+        Position, TICK, UNIT_SCALE, compute_commitment, compute_holder, errors,
     };
 
     #[storage]
@@ -542,11 +556,12 @@ pub mod AtrumAuction {
             // could under-collateralise and walk away from a losing fill.
             //   buy YES at p   -> u * p
             //   buy NO         -> u * (100 - p), where p is the YES-equivalent price
-            let required: u128 = if side == 1 {
+            let points: u128 = if side == 1 {
                 units * limit.into()
             } else {
                 units * (100_u128 - limit.into())
             };
+            let required: u128 = points * UNIT_SCALE;
             assert(order.escrow == required, errors::BAD_ESCROW);
 
             order.revealed = true;
@@ -611,7 +626,7 @@ pub mod AtrumAuction {
             // needs no counterparty and no outcome. It is the exit.
             pos.yes_units -= units;
             pos.no_units -= units;
-            let paid_out = units * 100_u128;
+            let paid_out = units * 100_u128 * UNIT_SCALE;
             pos.collateral += paid_out;
             // The set has been cashed, so it is no longer owed a refund. Saturating,
             // because a profitable merge pays out MORE than the pair cost and `staked`
@@ -686,7 +701,7 @@ pub mod AtrumAuction {
                 } else {
                     pos.no_units
                 };
-                pos.collateral += winning * 100_u128;
+                pos.collateral += winning * 100_u128 * UNIT_SCALE;
             }
 
             pos.yes_units = 0;
@@ -810,7 +825,7 @@ pub mod AtrumAuction {
             } else {
                 100_u128 - price
             };
-            let spent = order.filled * cost_per_unit;
+            let spent = order.filled * cost_per_unit * UNIT_SCALE;
             let refund = order.escrow - spent;
 
             let mut pos = self.positions.entry(order.holder).read();

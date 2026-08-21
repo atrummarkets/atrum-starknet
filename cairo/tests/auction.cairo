@@ -14,8 +14,8 @@
 //!                    priority and pro-rates only at the margin.
 
 use atrum_auction::{
-    AuctionOperation, IAtrumAuctionDispatcher, IAtrumAuctionDispatcherTrait, compute_commitment,
-    compute_holder,
+    AuctionOperation, IAtrumAuctionDispatcher, IAtrumAuctionDispatcherTrait, UNIT_SCALE,
+    compute_commitment, compute_holder,
 };
 use snforge_std::{
     ContractClassTrait, DeclareResultTrait, declare, start_cheat_block_timestamp_global,
@@ -29,6 +29,13 @@ fn POOL() -> ContractAddress {
 }
 fn OWNER() -> ContractAddress {
     0x9002.try_into().unwrap()
+}
+
+/// Price points -> token base units. The contract's arithmetic is in points; escrow arrives
+/// as a real amount. Tests state amounts in points and scale at the boundary, so the numbers
+/// stay readable and the scale is still exercised.
+fn pts(n: u128) -> u128 {
+    n * UNIT_SCALE
 }
 
 /// The event settles at t=1000, and the resolver has until t=2000 to say so. After that
@@ -73,10 +80,10 @@ fn setup() -> Ctx {
 /// Order matters -- the contract derives escrow from the balance delta, so calling invoke
 /// first would test a sequence the pool never produces.
 fn submit(
-    c: Ctx, running: u256, escrow: u128, holder_secret: felt252, side: u8, limit: u8, units: u128,
-    salt: felt252,
+    c: Ctx, running: u256, escrow_points: u128, holder_secret: felt252, side: u8, limit: u8,
+    units: u128, salt: felt252,
 ) -> (felt252, u256) {
-    let new_balance = running + escrow.into();
+    let new_balance = running + pts(escrow_points).into();
     c.token.set_balance(c.addr, new_balance);
 
     let holder = compute_holder(holder_secret);
@@ -108,7 +115,7 @@ fn submit_escrows_and_returns_no_deposits() {
     let c = setup();
     let (cm, _) = submit(c, 0, 60, 'alice', 1, 60, 1, 'a1');
     let o = c.auction.get_order(cm);
-    assert(o.escrow == 60, 'escrow recorded');
+    assert(o.escrow == pts(60), 'escrow recorded');
     assert(!o.revealed, 'not revealed yet');
     assert(c.auction.get_order_count(0) == 1, 'one order in batch 0');
 }
@@ -118,8 +125,8 @@ fn escrow_is_the_balance_delta_not_the_running_total() {
     let c = setup();
     let (c1, bal) = submit(c, 0, 55, 'alice', 1, 55, 1, 'a1');
     let (c2, _) = submit(c, bal, 30, 'bob', 1, 30, 1, 'b1');
-    assert(c.auction.get_order(c1).escrow == 55, 'first is 55');
-    assert(c.auction.get_order(c2).escrow == 30, 'second is the delta');
+    assert(c.auction.get_order(c1).escrow == pts(55), 'first is 55');
+    assert(c.auction.get_order(c2).escrow == pts(30), 'second is the delta');
 }
 
 #[test]
@@ -206,7 +213,7 @@ fn position_can_be_cashed_out_before_the_market_resolves() {
     // So she leaves with 100 against 90 spent: a 10-point gain, realised while the market
     // is still open and nobody knows the outcome. That is what selling before resolution
     // means, and it is why this is a market rather than a pool.
-    assert(p.collateral == 100, 'merged set pays 100');
+    assert(p.collateral == pts(100), 'merged set pays 100');
 }
 
 #[test]
@@ -217,7 +224,7 @@ fn solvency_every_matched_unit_is_funded_exactly_100() {
 
     let (_, bal) = submit(c, 0, 70, 'alice', 1, 70, 1, 'ax');
     let (_, _) = submit(c, bal, 40, 'bob', 2, 60, 1, 'bx');
-    let total_escrow: u128 = 70 + 40;
+    let total_escrow: u128 = pts(70 + 40);
 
     c.auction.close_batch();
     c.auction.reveal('alice', 1, 70, 1, 'ax');
@@ -240,9 +247,9 @@ fn solvency_every_matched_unit_is_funded_exactly_100() {
     assert(paid <= total_escrow, 'payouts exceed escrow');
     // Cleared at 65 (midpoint of [60,70]). Alice paid 65 and holds the winning unit:
     // refund 5 + payout 100 = 105. Bob paid 35 of his 40: refund 5, loses the unit.
-    assert(pa.collateral == 105, 'winner takes 100 plus refund');
-    assert(pb.collateral == 5, 'loser keeps only the refund');
-    assert(paid == 110, 'in equals out');
+    assert(pa.collateral == pts(105), 'winner takes 100 plus refund');
+    assert(pb.collateral == pts(5), 'loser keeps only the refund');
+    assert(paid == pts(110), 'in equals out');
 }
 
 #[test]
@@ -265,7 +272,7 @@ fn withdrawing_pays_into_an_open_note_and_zeroes_the_balance() {
     c.auction.redeem('alice');
 
     let owed = c.auction.get_position(alice).collateral;
-    assert(owed == 100, 'alice is owed 100');
+    assert(owed == pts(100), 'alice is owed 100');
 
     start_cheat_caller_address(c.auction.contract_address, POOL());
     let deposits = c
@@ -286,7 +293,7 @@ fn withdrawing_pays_into_an_open_note_and_zeroes_the_balance() {
 
     assert(deposits.len() == 1, 'one deposit instruction');
     let d = *deposits.at(0);
-    assert(d.amount == 100, 'credits the full balance');
+    assert(d.amount == pts(100), 'credits the full balance');
     assert(d.note_id == 'note-1', 'into the open note');
     assert(c.auction.get_position(alice).collateral == 0, 'balance zeroed');
 }
@@ -339,8 +346,8 @@ fn an_abandoned_market_refunds_everyone_at_cost() {
     c.auction.settle_batch(array![]);
 
     // Cleared at 65: alice paid 65 of her 70, bob paid 35 of his 40.
-    assert(c.auction.get_position(alice).staked == 65, 'alice staked 65');
-    assert(c.auction.get_position(bob).staked == 35, 'bob staked 35');
+    assert(c.auction.get_position(alice).staked == pts(65), 'alice staked 65');
+    assert(c.auction.get_position(bob).staked == pts(35), 'bob staked 35');
 
     // The resolver never resolves. Deadline passes.
     start_cheat_block_timestamp_global(RESOLVE_DEADLINE + 1);
@@ -353,9 +360,9 @@ fn an_abandoned_market_refunds_everyone_at_cost() {
     let pa = c.auction.get_position(alice);
     let pb = c.auction.get_position(bob);
     // 5 refunded at settle + 65 staked back = 70, exactly what she put in.
-    assert(pa.collateral == 70, 'alice made whole');
-    assert(pb.collateral == 40, 'bob made whole');
-    assert(pa.collateral + pb.collateral == 110, 'nothing created or lost');
+    assert(pa.collateral == pts(70), 'alice made whole');
+    assert(pb.collateral == pts(40), 'bob made whole');
+    assert(pa.collateral + pb.collateral == pts(110), 'nothing created or lost');
 }
 
 #[test]
