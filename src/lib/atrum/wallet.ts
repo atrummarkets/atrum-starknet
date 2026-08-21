@@ -121,16 +121,22 @@ export function submitOrderActions(
   commitment: bigint,
   escrow: bigint,
   units: bigint,
-  userAddress: string,
+  /** Unused on submit -- kept so the call site reads the same as the withdraw path, where
+   *  an open note IS needed. */
+  _userAddress: string,
 ): STRK20_ACTION[] {
+  // TWO actions, and NO open note. This is the correction that matters:
+  //
+  // An `"OPEN"` transfer creates a slot the pool expects a helper to credit. `do_submit`
+  // returns `array![].span()` on purpose -- returning nothing is precisely what makes the
+  // pool leave the escrow behind -- so an open note here is a slot demanding a fill that
+  // never comes.
+  //
+  // The starter kit's echo helper returns the full amount back, so ITS open note gets
+  // credited. Ours keeps the money. Copying the three-action shape without checking it fit
+  // the semantics is what produced a transaction that reverted in execution.
   return [
-    // 1. THE ESCROW. Without this the helper's balance delta is zero and `do_submit`
-    //    reverts on BAD_ESCROW. Leaving it out was a real bug: the docs' swap example
-    //    implies the pool infers the withdraw from calldata, and it does not.
     { type: "withdraw", token: STRK, amount: num.toHex(escrow), recipient: market },
-    // 2. The open note any output is credited into.
-    { type: "transfer", token: STRK, amount: "OPEN", recipient: userAddress },
-    // 3. The helper call.
     {
       type: "invoke",
       contract: market,
@@ -144,7 +150,7 @@ export function submitOrderActions(
         num.toHex(0), // side   -- sealed
         num.toHex(0), // limit  -- sealed
         num.toHex(0), // holder -- sealed
-        "${openNoteIds[0]}",
+        num.toHex(0), // note_id -- nothing is credited on submit
       ],
     },
   ];
