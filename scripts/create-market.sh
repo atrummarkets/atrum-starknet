@@ -37,7 +37,10 @@ RESOLVE_DEADLINE="${5:?when the resolver loses the right to decide, ISO 8601 or 
 # near it.
 REVEAL_WINDOW="${6:-3600}"
 
-cd "$(dirname "$0")/../cairo"
+# Resolved BEFORE the cd, and absolutely: the helper below is referenced after we have moved
+# into cairo/, where a path relative to $0 no longer points at scripts/.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR/../cairo"
 
 FACTORY="${STRK20_FACTORY:?set STRK20_FACTORY to the factory address (see DEPLOYMENTS.md)}"
 
@@ -61,14 +64,21 @@ fi
 # ByteArray is not one felt. Serialising it by hand is how the calldata ends up subtly wrong
 # in a way that surfaces as an unrelated error, so it goes through the same helper the tests
 # and the app use.
-QUESTION_CALLDATA=$(python3 "$(dirname "$0")/bytearray.py" "$QUESTION")
-SOURCE_CALLDATA=$(python3 "$(dirname "$0")/bytearray.py" "$SOURCE")
+QUESTION_CALLDATA=$(python3 "$SCRIPT_DIR/bytearray.py" "$QUESTION")
+SOURCE_CALLDATA=$(python3 "$SCRIPT_DIR/bytearray.py" "$SOURCE")
 
 # Any felt works; it only has to differ from the caller's previous salts. The factory deploys
 # with `deploy_from_zero: false`, so the deployer address is mixed in -- two creators picking
 # the same salt get different addresses instead of one of them reverting on a collision they
 # could not see coming.
+#
+# A felt, not a label: calldata is numbers, and a word passed here reaches sncast as something
+# it cannot parse. Defaults to the current second, which is unique enough per caller.
 SALT="${STRK20_SALT:-$(date +%s)}"
+if [[ ! "$SALT" =~ ^(0x[0-9a-fA-F]+|[0-9]+)$ ]]; then
+  echo "STRK20_SALT must be a felt (decimal or 0x-hex), not '$SALT'" >&2
+  exit 1
+fi
 
 echo "==> creating a market on $NET"
 echo "    question        $QUESTION"

@@ -5,7 +5,10 @@
 
 [sncast.sepolia]
 account = "atrum_sepolia"
-url = "https://starknet-sepolia.public.blastapi.io/rpc/v0_8"
+# Was Blast API, which has been shut down entirely -- it now answers every request with
+# "Blast API is no longer available", and sncast surfaces that as a spec_version parse error
+# that looks like a version incompatibility rather than a dead host.
+url = "https://api.cartridge.gg/x/starknet/sepolia"
 
 [sncast.mainnet]
 account = "atrum_mainnet"

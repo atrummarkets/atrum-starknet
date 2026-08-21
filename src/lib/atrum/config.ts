@@ -26,14 +26,14 @@ export const POOL = {
  * someone else creates shows up without us shipping a new build.
  */
 export const FACTORY = {
-  sepolia: "0x072210a591a19a674de577d69d9f31ce532534900e00467c611654f688fd5f52",
+  sepolia: "0x007159d8d4160c5e84f561cb11addad3d376515344b622bb35b9ef24f7229197",
   mainnet: "0x0",
 } as const;
 
 /** The class every market from the factory runs. Immutable on the factory; shown in the UI
  *  so a trader can check the market they are looking at is the code that was audited. */
 export const AUCTION_CLASS = {
-  sepolia: "0x6d480d0dacd4f293ea7b1b574ee4ebee55f59145fbe18c51de48dec98dddeca",
+  sepolia: "0x7722d94883f0ed7fd1d199d125770b880a44c3e8808c144b5a191465ea59c01",
   mainnet: "0x0",
 } as const;
 
