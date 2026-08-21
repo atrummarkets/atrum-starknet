@@ -84,6 +84,7 @@ export function OrderTicket({
         escrow: escrowWei.toString(),
         batch,
         network: process.env.NEXT_PUBLIC_STARKNET_NETWORK ?? "sepolia",
+        market: marketAddress,
         submittedAt: Date.now(),
       });
 

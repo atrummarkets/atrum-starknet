@@ -29,6 +29,10 @@ export type StoredOrder = {
   escrow: string;
   batch: number;
   network: string;
+  /** Which market this order belongs to. Without it the list showed every market at once. */
+  market: string;
+  /** Absent until the transaction is actually submitted. A record with no hash is an
+   *  ABANDONED ATTEMPT, not a sealed order, and must not be displayed as one. */
   txHash?: string;
   submittedAt: number;
   revealed?: boolean;
@@ -108,8 +112,46 @@ export function markRevealed(commitment: string) {
   }
 }
 
-export function listOrders(network: string): StoredOrder[] {
-  return read().orders.filter((o) => o.network === network);
+/**
+ * Orders for one market.
+ *
+ * Filtered by market as well as network. Filtering on network alone pooled every market's
+ * orders into one list under a heading naming a single market — so a handful of orders looked
+ * like a dozen.
+ *
+ * Records written before a transaction that never landed have no `txHash`. They are kept
+ * rather than deleted, because a hash can arrive late and the salt is the only way to ever
+ * reveal, but they are returned flagged so the UI can show them as what they are.
+ */
+export function listOrders(network: string, market?: string): StoredOrder[] {
+  return read().orders.filter(
+    (o) => o.network === network && (market === undefined || o.market === market),
+  );
+}
+
+/** Attempts whose transaction never landed. Safe to remove: nothing was escrowed. */
+export function abandoned(network: string, market?: string): StoredOrder[] {
+  return listOrders(network, market).filter((o) => !o.txHash);
+}
+
+/**
+ * Drop records with no transaction hash.
+ *
+ * Only ever these. An order with a hash escrowed real collateral, and deleting its salt
+ * would strand that collateral permanently — so the purge is deliberately unable to touch
+ * one.
+ */
+export function purgeAbandoned(network: string, market?: string): number {
+  const st = read();
+  const before = st.orders.length;
+  st.orders = st.orders.filter(
+    (o) =>
+      Boolean(o.txHash) ||
+      o.network !== network ||
+      (market !== undefined && o.market !== market),
+  );
+  write(st);
+  return before - st.orders.length;
 }
 
 /** Everything needed to recover, as a file. The UI should nag until this is downloaded. */

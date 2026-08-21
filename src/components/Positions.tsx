@@ -12,11 +12,13 @@ import { useCallback, useEffect, useState } from "react";
 import type { WalletAccountV6 } from "starknet";
 import { fmtStrk } from "@/lib/atrum/config";
 import {
+  abandoned,
   computeHolder,
   exportBackup,
   holderSecret,
   listOrders,
   markRevealed,
+  purgeAbandoned,
   type StoredOrder,
 } from "@/lib/atrum/orders";
 import { readPosition, type Market, type Position } from "@/lib/atrum/useMarket";
@@ -59,7 +61,7 @@ export function Positions({
   const [mergeUnits, setMergeUnits] = useState("1");
 
   const reload = useCallback(async () => {
-    setOrders(listOrders(NETNAME));
+    setOrders(listOrders(NETNAME, marketAddress));
     try {
       setPos(await readPosition(marketAddress, computeHolder(holderSecret())));
     } catch {
@@ -192,7 +194,7 @@ export function Positions({
 
       {/* ---------- orders ---------- */}
       <div className="panel">
-        <p className="panel-label">Your orders · batch {market?.batch ?? "—"}</p>
+        <p className="panel-label">Your orders · this market</p>
         {orders.length === 0 && <p className="msg-line">No orders yet.</p>}
         <div className="orders">
           {orders.map((o) => (
@@ -209,10 +211,18 @@ export function Positions({
                 </div>
               </div>
               <div className="btn-row">
-                <span className={`badge ${o.revealed ? "badge-revealed" : "badge-sealed"}`}>
-                  {o.revealed ? "revealed" : "sealed"}
+                <span
+                  className={`badge ${
+                    !o.txHash ? "badge-sealed" : o.revealed ? "badge-revealed" : "badge-filled"
+                  }`}
+                  style={!o.txHash ? { opacity: 0.55 } : undefined}
+                >
+                  {/* An attempt with no transaction hash never reached the chain and never
+                      escrowed anything. Showing it as "sealed" beside a real order was a
+                      straight lie about what exists. */}
+                  {!o.txHash ? "not submitted" : o.revealed ? "revealed" : "sealed"}
                 </span>
-                {!o.revealed && market?.phase === "Revealing" && (
+                {o.txHash && !o.revealed && market?.phase === "Revealing" && (
                   <button
                     className="btn btn-sm"
                     disabled={!account || busy !== null}
@@ -237,7 +247,25 @@ export function Positions({
             </div>
           ))}
         </div>
-        {market?.phase === "Revealing" && orders.some((o) => !o.revealed) && (
+        {orders.some((o) => !o.txHash) && (
+          <p className="notice">
+            {orders.filter((o) => !o.txHash).length} attempt
+            {orders.filter((o) => !o.txHash).length === 1 ? "" : "s"} never reached the chain
+            and escrowed nothing — a record is written before signing so a dying tab cannot
+            strand funds, and these are the leftovers.{" "}
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => {
+                purgeAbandoned(NETNAME, marketAddress);
+                void reload();
+              }}
+            >
+              Clear {abandoned(NETNAME, marketAddress).length} of them
+            </button>
+          </p>
+        )}
+
+        {market?.phase === "Revealing" && orders.some((o) => o.txHash && !o.revealed) && (
           <p className="notice notice-warn">
             Reveal before the batch clears or your order takes no part in it — the escrow
             comes back in full, but you will not have traded.
