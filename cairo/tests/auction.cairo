@@ -14,8 +14,8 @@
 //!                    priority and pro-rates only at the margin.
 
 use atrum_auction::{
-    AuctionOperation, IAtrumAuctionDispatcher, IAtrumAuctionDispatcherTrait, UNIT_SCALE,
-    compute_commitment, compute_holder,
+    AuctionOperation, IAtrumAuctionDispatcher, IAtrumAuctionDispatcherTrait, MAX_REVEAL_WINDOW,
+    UNIT_SCALE, compute_commitment, compute_holder,
 };
 use snforge_std::{
     ContractClassTrait, DeclareResultTrait, declare, start_cheat_block_timestamp_global,
@@ -43,6 +43,14 @@ fn pts(n: u128) -> u128 {
 const SETTLE_AFTER: u64 = 1000;
 const RESOLVE_DEADLINE: u64 = 2000;
 
+/// Bidders get this long after a round closes to reveal, enforced by the contract.
+const REVEAL_WINDOW: u64 = 300;
+
+/// The instant `close_and_wait` closes a round at. Fixed so the helper never has to read the
+/// timestamp back out of the contract -- see the note there. Chosen early enough that the
+/// tests which later move the clock to the resolve window are still moving it forwards.
+const CLOSE_AT: u64 = 100;
+
 #[derive(Copy, Drop)]
 struct Ctx {
     auction: IAtrumAuctionDispatcher,
@@ -67,6 +75,7 @@ fn setup() -> Ctx {
     src.serialize(ref args);
     args.append(SETTLE_AFTER.into());
     args.append(RESOLVE_DEADLINE.into());
+    args.append(REVEAL_WINDOW.into());
     let (auction_addr, _) = auction_class.deploy(@args).unwrap();
 
     Ctx {
@@ -74,6 +83,22 @@ fn setup() -> Ctx {
         token: IMockErc20Dispatcher { contract_address: token_addr },
         addr: auction_addr,
     }
+}
+
+/// Close the round and let the reveal window elapse.
+///
+/// Every test that clears goes through this now, because `clear` refuses while bidders could
+/// still be revealing. Written as a helper so the tests read as the sequence a real round
+/// actually follows -- close, wait out the window, clear -- rather than as a bare timestamp
+/// cheat whose purpose is not obvious at the call site.
+fn close_and_wait(c: Ctx) {
+    // Pins the close to a known instant rather than reading `get_closed_at` back out. That
+    // would read better, but a view call in snforge costs a full contract invocation and the
+    // heavier tests here already run to ~60M steps. The tests that specifically exercise the
+    // timestamp read it properly; the rest only need the round advanced.
+    start_cheat_block_timestamp_global(CLOSE_AT);
+    c.auction.close_batch();
+    start_cheat_block_timestamp_global(CLOSE_AT + REVEAL_WINDOW);
 }
 
 /// Simulates the pool: transfer collateral to the helper, THEN call privacy_invoke.
@@ -143,7 +168,7 @@ fn clearing_price_is_the_midpoint_of_the_crossing_range() {
     bal = nb;
     let (s65, _) = submit(c, bal, 35, 'dave', 2, 65, 1, 'd65');
 
-    c.auction.close_batch();
+    close_and_wait(c);
     c.auction.reveal('alice', 1, 70, 1, 'a70');
     c.auction.reveal('bob', 1, 60, 1, 'b60');
     c.auction.reveal('carol', 2, 50, 1, 'c50');
@@ -176,7 +201,7 @@ fn position_can_be_cashed_out_before_the_market_resolves() {
     let (_, nb) = submit(c, bal, 40, 'bob', 2, 60, 1, 'b-b0');
     bal = nb;
 
-    c.auction.close_batch();
+    close_and_wait(c);
     c.auction.reveal('alice', 1, 60, 1, 'a-b0');
     c.auction.reveal('bob', 2, 60, 1, 'b-b0');
     c.auction.clear();
@@ -192,7 +217,7 @@ fn position_can_be_cashed_out_before_the_market_resolves() {
     bal = nb;
     let (_, _) = submit(c, bal, 70, 'carol', 1, 70, 1, 'c-b1');
 
-    c.auction.close_batch();
+    close_and_wait(c);
     c.auction.reveal('alice', 2, 70, 1, 'a-b1');
     c.auction.reveal('carol', 1, 70, 1, 'c-b1');
     c.auction.clear();
@@ -226,7 +251,7 @@ fn solvency_every_matched_unit_is_funded_exactly_100() {
     let (_, _) = submit(c, bal, 40, 'bob', 2, 60, 1, 'bx');
     let total_escrow: u128 = pts(70 + 40);
 
-    c.auction.close_batch();
+    close_and_wait(c);
     c.auction.reveal('alice', 1, 70, 1, 'ax');
     c.auction.reveal('bob', 2, 60, 1, 'bx');
     c.auction.clear();
@@ -259,7 +284,7 @@ fn withdrawing_pays_into_an_open_note_and_zeroes_the_balance() {
     let (_, bal) = submit(c, 0, 60, 'alice', 1, 60, 1, 'a1');
     let (_, _) = submit(c, bal, 40, 'bob', 2, 60, 1, 'b1');
 
-    c.auction.close_batch();
+    close_and_wait(c);
     c.auction.reveal('alice', 1, 60, 1, 'a1');
     c.auction.reveal('bob', 2, 60, 1, 'b1');
     c.auction.clear();
@@ -303,7 +328,7 @@ fn withdrawing_pays_into_an_open_note_and_zeroes_the_balance() {
 fn reveal_rejects_under_collateralised_order() {
     let c = setup();
     let (_, _) = submit(c, 0, 10, 'cheat', 1, 70, 1, 'x');
-    c.auction.close_batch();
+    close_and_wait(c);
     c.auction.reveal('cheat', 1, 70, 1, 'x');
 }
 
@@ -339,7 +364,7 @@ fn an_abandoned_market_refunds_everyone_at_cost() {
     let (_, bal) = submit(c, 0, 70, 'alice', 1, 70, 1, 'ax');
     let (_, _) = submit(c, bal, 40, 'bob', 2, 60, 1, 'bx');
 
-    c.auction.close_batch();
+    close_and_wait(c);
     c.auction.reveal('alice', 1, 70, 1, 'ax');
     c.auction.reveal('bob', 2, 60, 1, 'bx');
     c.auction.clear();
@@ -371,7 +396,7 @@ fn cannot_resolve_before_the_event_has_happened() {
     let c = setup();
     let (_, bal) = submit(c, 0, 70, 'alice', 1, 70, 1, 'ax');
     let (_, _) = submit(c, bal, 40, 'bob', 2, 60, 1, 'bx');
-    c.auction.close_batch();
+    close_and_wait(c);
     c.auction.reveal('alice', 1, 70, 1, 'ax');
     c.auction.reveal('bob', 2, 60, 1, 'bx');
     c.auction.clear();
@@ -388,7 +413,7 @@ fn resolver_loses_the_right_to_decide_after_the_deadline() {
     let c = setup();
     let (_, bal) = submit(c, 0, 70, 'alice', 1, 70, 1, 'ax');
     let (_, _) = submit(c, bal, 40, 'bob', 2, 60, 1, 'bx');
-    c.auction.close_batch();
+    close_and_wait(c);
     c.auction.reveal('alice', 1, 70, 1, 'ax');
     c.auction.reveal('bob', 2, 60, 1, 'bx');
     c.auction.clear();
@@ -420,6 +445,7 @@ fn a_market_with_no_question_cannot_be_deployed() {
     src.serialize(ref args);
     args.append(SETTLE_AFTER.into());
     args.append(RESOLVE_DEADLINE.into());
+    args.append(REVEAL_WINDOW.into());
 
     match auction_class.deploy(@args) {
         Result::Ok(_) => panic!("a market with no question should not deploy"),
@@ -428,5 +454,190 @@ fn a_market_with_no_question_cannot_be_deployed() {
             // so itself rather than leaving a UI to enforce it.
             assert(*panic_data.at(0) == 'EMPTY_QUESTION', 'wrong reason');
         },
+    }
+}
+
+// ---------------------------------------------------------------------------------------
+// The reveal window
+//
+// `close_batch` and `clear` are both permissionless so that a market never depends on one
+// keeper staying alive. The cost of that is that the same caller can make both calls, and a
+// keeper that cleared the instant it closed a round would drop every bet whose owner had not
+// revealed yet -- refunding their stake, but silently deleting their trade, and leaving an
+// on-chain record indistinguishable from an honest clearing.
+//
+// These tests are the reason that is not possible.
+// ---------------------------------------------------------------------------------------
+
+#[test]
+#[should_panic(expected: 'REVEAL_WINDOW_OPEN')]
+fn cannot_clear_in_the_same_breath_as_closing() {
+    let c = setup();
+    let (_, bal) = submit(c, 0, 60, 'alice', 1, 60, 1, 'a1');
+    let (_, _) = submit(c, bal, 50, 'bob', 2, 50, 1, 'b1');
+
+    // Exactly the hostile-keeper sequence: no timestamp cheat between the two calls.
+    c.auction.close_batch();
+    c.auction.clear();
+}
+
+#[test]
+#[should_panic(expected: 'REVEAL_WINDOW_OPEN')]
+fn cannot_clear_one_second_early() {
+    let c = setup();
+    let (_, bal) = submit(c, 0, 60, 'alice', 1, 60, 1, 'a1');
+    let (_, _) = submit(c, bal, 50, 'bob', 2, 50, 1, 'b1');
+
+    c.auction.close_batch();
+    let opened = c.auction.get_closed_at(c.auction.get_batch());
+    // A boundary rather than a round number: the window is inclusive at its end, so the last
+    // moment that must still fail is one second before it.
+    start_cheat_block_timestamp_global(opened + REVEAL_WINDOW - 1);
+    c.auction.clear();
+}
+
+#[test]
+fn clears_the_moment_the_window_closes() {
+    let c = setup();
+    let (a, bal) = submit(c, 0, 60, 'alice', 1, 60, 1, 'a1');
+    let (b, _) = submit(c, bal, 50, 'bob', 2, 50, 1, 'b1');
+
+    c.auction.close_batch();
+    let opened = c.auction.get_closed_at(c.auction.get_batch());
+    c.auction.reveal('alice', 1, 60, 1, 'a1');
+    c.auction.reveal('bob', 2, 50, 1, 'b1');
+
+    // The window is a floor on waiting, not an extra delay on top of it.
+    start_cheat_block_timestamp_global(opened + REVEAL_WINDOW);
+    c.auction.clear();
+
+    assert(c.auction.get_clearing_price(0) == 55, 'cleared at the midpoint');
+    assert(c.auction.get_order(a).filled == 1, 'yes filled');
+    assert(c.auction.get_order(b).filled == 1, 'no filled');
+}
+
+#[test]
+fn a_late_revealer_is_still_in_the_auction() {
+    let c = setup();
+    let (a, bal) = submit(c, 0, 60, 'alice', 1, 60, 1, 'a1');
+    let (b, _) = submit(c, bal, 50, 'bob', 2, 50, 1, 'b1');
+
+    c.auction.close_batch();
+    let opened = c.auction.get_closed_at(c.auction.get_batch());
+
+    // Alice is prompt. Bob reveals near the end of the window -- which under the old
+    // keeper-held timer was a race against whenever that process felt like clearing.
+    c.auction.reveal('alice', 1, 60, 1, 'a1');
+    start_cheat_block_timestamp_global(opened + REVEAL_WINDOW - 1);
+    c.auction.reveal('bob', 2, 50, 1, 'b1');
+
+    start_cheat_block_timestamp_global(opened + REVEAL_WINDOW);
+    c.auction.clear();
+
+    assert(c.auction.get_order(a).filled == 1, 'prompt one filled');
+    assert(c.auction.get_order(b).filled == 1, 'late one filled too');
+}
+
+#[test]
+fn the_window_is_public_before_anyone_bids() {
+    // A trader has to be able to find out how long they will have to reveal *before* they
+    // commit money, or the guarantee is not one they can rely on.
+    let c = setup();
+    assert(c.auction.get_reveal_window() == REVEAL_WINDOW, 'window is readable');
+    assert(c.auction.get_closed_at(0) == 0, 'not closed yet');
+}
+
+#[test]
+fn each_round_gets_its_own_close_time() {
+    let c = setup();
+    let (_, bal) = submit(c, 0, 60, 'alice', 1, 60, 1, 'a1');
+    let (_, bal2) = submit(c, bal, 50, 'bob', 2, 50, 1, 'b1');
+    close_and_wait(c);
+    c.auction.clear();
+    c.auction.settle_batch(array![]);
+
+    // Round 1 closes much later. Its window has to be measured from when *it* closed -- one
+    // timestamp per market instead of per batch would make every round after the first
+    // instantly clearable, because round 0's window is long gone by then.
+    let (_, bal3) = submit(c, bal2, 40, 'carol', 1, 40, 1, 'c1');
+    let (_, _) = submit(c, bal3, 60, 'dave', 2, 60, 1, 'd1');
+    start_cheat_block_timestamp_global(50_000);
+    c.auction.close_batch();
+
+    assert(c.auction.get_closed_at(0) == CLOSE_AT, 'round 0 kept its stamp');
+    assert(c.auction.get_closed_at(1) == 50_000, 'round 1 stamped separately');
+}
+
+#[test]
+#[should_panic(expected: 'REVEAL_WINDOW_OPEN')]
+fn a_later_round_cannot_borrow_the_first_rounds_elapsed_window() {
+    let c = setup();
+    let (_, bal) = submit(c, 0, 60, 'alice', 1, 60, 1, 'a1');
+    let (_, bal2) = submit(c, bal, 50, 'bob', 2, 50, 1, 'b1');
+    close_and_wait(c);
+    c.auction.clear();
+    c.auction.settle_batch(array![]);
+
+    // Round 1 opens long after round 0's window expired, and is closed and cleared with no
+    // wait at all. This is the regression that a per-market timestamp would allow.
+    let (_, bal3) = submit(c, bal2, 40, 'carol', 1, 40, 1, 'c1');
+    let (_, _) = submit(c, bal3, 60, 'dave', 2, 60, 1, 'd1');
+    start_cheat_block_timestamp_global(50_000);
+    c.auction.close_batch();
+    c.auction.clear();
+}
+
+/// A market cannot be created with a reveal window of zero.
+///
+/// Same reason as the empty question: the value is fixed at construction and there is no
+/// setter, so this is the only moment the rule can be applied. Deployed directly rather than
+/// through the factory so the panic data is inspectable.
+#[test]
+fn a_market_with_no_reveal_window_cannot_be_deployed() {
+    let erc20_class = declare("MockErc20").unwrap().contract_class();
+    let (token_addr, _) = erc20_class.deploy(@array![]).unwrap();
+    let auction_class = declare("AtrumAuction").unwrap().contract_class();
+
+    let mut args: Array<felt252> = array![];
+    args.append(POOL().into());
+    args.append(token_addr.into());
+    args.append(OWNER().into());
+    let q: ByteArray = "A real question?";
+    let src: ByteArray = "A real source";
+    q.serialize(ref args);
+    src.serialize(ref args);
+    args.append(SETTLE_AFTER.into());
+    args.append(RESOLVE_DEADLINE.into());
+    args.append(0);
+
+    match auction_class.deploy(@args) {
+        Result::Ok(_) => panic!("deployed a market that could clear instantly"),
+        Result::Err(e) => assert(*e.at(0) == 'BAD_REVEAL_WINDOW', 'wrong error'),
+    }
+}
+
+/// Nor with one so long the round could never clear, stranding escrow until the refund
+/// deadline. A market that can only end in a refund is not a market.
+#[test]
+fn a_market_with_an_absurd_reveal_window_cannot_be_deployed() {
+    let erc20_class = declare("MockErc20").unwrap().contract_class();
+    let (token_addr, _) = erc20_class.deploy(@array![]).unwrap();
+    let auction_class = declare("AtrumAuction").unwrap().contract_class();
+
+    let mut args: Array<felt252> = array![];
+    args.append(POOL().into());
+    args.append(token_addr.into());
+    args.append(OWNER().into());
+    let q: ByteArray = "A real question?";
+    let src: ByteArray = "A real source";
+    q.serialize(ref args);
+    src.serialize(ref args);
+    args.append(SETTLE_AFTER.into());
+    args.append(RESOLVE_DEADLINE.into());
+    args.append((MAX_REVEAL_WINDOW + 1).into());
+
+    match auction_class.deploy(@args) {
+        Result::Ok(_) => panic!("deployed an unclearable market"),
+        Result::Err(e) => assert(*e.at(0) == 'BAD_REVEAL_WINDOW', 'wrong error'),
     }
 }

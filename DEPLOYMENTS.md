@@ -1,5 +1,19 @@
 # Deployments
 
+> **The live Sepolia factory predates the on-chain reveal window and needs replacing.**
+>
+> `clear` used to be callable the instant a round closed, and what stopped that from
+> excluding bidders who had not revealed yet was a timer inside the keeper process --
+> unverifiable from outside, unenforceable against a hostile keeper, and lost on every
+> restart. The contract now stamps the close time and refuses to clear until each market's
+> own `reveal_window` has elapsed.
+>
+> That changed the auction class hash, and a factory's auction class is immutable by design,
+> so it means a new factory rather than an upgrade. The markets below keep working under the
+> old rules; the current keeper deliberately refuses to advance them, because for a market
+> with no on-chain close time it cannot prove it waited. Recreate them through the new
+> factory before relying on any of this.
+
 ## Sepolia — live
 
 ### Factory

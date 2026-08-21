@@ -23,6 +23,21 @@
  * WRONG_PHASE, which is success reported as an error. Nothing here can move anyone's money,
  * settle a market, or choose an outcome. If it dies, the market does not — it just waits for
  * someone to run one.
+ *
+ * WHY IT HOLDS NO STATE
+ *
+ * It used to. The reveal window — how long bidders get after a round closes, before it can be
+ * cleared — was a timer in this process, and that was wrong in three ways at once. It was
+ * unverifiable, because nobody outside could check the wait had happened. It was
+ * unenforceable, because a keeper that skipped it looked identical on chain. And it was lost
+ * on restart, which for anything deployed means lost on every deploy.
+ *
+ * The contract holds it now: `close_batch` stamps the time, `clear` refuses until the window
+ * has passed, and the window is fixed when the market is created. So this process reads the
+ * deadline rather than remembering it, and that single change is what makes it safe to
+ * restart, safe to run several of, and safe for a stranger to run against your markets.
+ *
+ * Nothing here needs a disk, a database, or a graceful shutdown to stay correct.
  */
 import { Account, RpcProvider } from "starknet";
 
@@ -33,21 +48,6 @@ const PRIVATE_KEY = process.env.KEEPER_PRIVATE_KEY;
 
 const POLL_MS = Number(process.env.KEEPER_POLL_MS ?? 30_000);
 const MIN_BETS = Number(process.env.KEEPER_MIN_BETS ?? 2);
-
-/**
- * How long to leave a round open for reveals before clearing it.
- *
- * THIS IS THE ONLY ETHICALLY LOAD-BEARING SETTING HERE.
- *
- * Whoever calls `clear` fixes the reveal cutoff, and the contract does not enforce a minimum.
- * A keeper that cleared the instant a round closed would silently exclude every bet whose
- * owner had not revealed yet — their stake returns, but their bet never happens. Done
- * deliberately and repeatedly, that is censorship with no on-chain trace.
- *
- * So: wait, generously, from the first moment the round is seen open for reveals. The cost of
- * waiting too long is a slow market. The cost of not waiting is other people's trades.
- */
-const REVEAL_WINDOW_MS = Number(process.env.KEEPER_REVEAL_WINDOW_MS ?? 180_000);
 
 const ONCE = process.argv.includes("--once");
 
@@ -66,9 +66,6 @@ const provider = new RpcProvider({ nodeUrl: RPC });
 // hands `undefined` to the address, which fails deep inside the constructor with a
 // toLowerCase error that says nothing about the real cause.
 const account = new Account({ provider, address: ADDRESS, signer: PRIVATE_KEY });
-
-/** First time each market was seen open for reveals, so the window is measured, not guessed. */
-const revealingSince = new Map();
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
@@ -93,11 +90,30 @@ async function readMarket(address) {
   const [batchRaw] = await view(address, "get_batch");
   const batch = Number(BigInt(batchRaw));
   const [countRaw] = await view(address, "get_order_count", [batch.toString()]);
+  // Markets deployed before the reveal window moved on-chain do not have these views, and a
+  // keeper cannot be stateless against them -- there is nothing on the chain to read. Rather
+  // than quietly reintroducing an in-process timer for those, detect them and refuse: the
+  // whole point is that the wait is verifiable, and for a legacy market it is not.
+  let revealWindow, closedAt;
+  try {
+    const [windowRaw] = await view(address, "get_reveal_window");
+    const [closedRaw] = await view(address, "get_closed_at", [batch.toString()]);
+    revealWindow = Number(BigInt(windowRaw));
+    closedAt = Number(BigInt(closedRaw));
+  } catch {
+    return { address, batch, legacy: true };
+  }
+
   return {
     address,
     phase: PHASES[Number(BigInt(phaseRaw))] ?? "Open",
     batch,
     orders: Number(BigInt(countRaw)),
+    revealWindow,
+    closedAt,
+    // Unix seconds, per the chain, after which `clear` will be accepted. Zero before the
+    // round has closed. Read rather than remembered -- see the note at the top.
+    clearableAt: closedAt === 0 ? 0 : closedAt + revealWindow,
   };
 }
 
@@ -131,26 +147,24 @@ async function nextAction(m) {
   }
 
   if (m.phase === "Revealing") {
-    const key = `${m.address}:${m.batch}`;
-    if (!revealingSince.has(key)) {
-      revealingSince.set(key, Date.now());
-      log(`  ${short(m.address)} reveal window opened, waiting ${REVEAL_WINDOW_MS / 1000}s`);
+    // The chain decides. Not "wait 180s from when this process first noticed" -- wait until
+    // the block timestamp the contract itself will accept, which is the same instant for every
+    // keeper watching this market and survives this process being restarted.
+    const now = Math.floor(Date.now() / 1000);
+    if (now < m.clearableAt) {
+      const left = m.clearableAt - now;
+      log(`  ${short(m.address)} round ${m.batch} reveals open for ${left}s more`);
       return null;
     }
-    const waited = Date.now() - revealingSince.get(key);
-    const revealed = await revealedCount(m.address, m.batch, m.orders);
 
-    // Clear early only when there is nothing left to wait for.
-    if (revealed >= m.orders) {
-      return { entrypoint: "clear", calldata: [], why: "everyone revealed" };
-    }
-    if (waited < REVEAL_WINDOW_MS) {
-      return null;
-    }
+    // Only worth an RPC round-trip per order once clearing is actually permitted, and only to
+    // report what the round looked like -- not to decide anything. Deciding on this number
+    // would reintroduce the discretion the window exists to remove.
+    const revealed = await revealedCount(m.address, m.batch, m.orders);
     return {
       entrypoint: "clear",
       calldata: [],
-      why: `window elapsed, ${revealed}/${m.orders} revealed`,
+      why: `window closed, ${revealed}/${m.orders} revealed`,
     };
   }
 
@@ -181,6 +195,15 @@ async function tick() {
       continue;
     }
 
+    if (m.legacy) {
+      log(
+        `${short(address)} SKIPPED — predates the on-chain reveal window. Nothing here can ` +
+          `verify when its round closed, so advancing it would be exactly the unverifiable ` +
+          `wait this keeper no longer does. Recreate it through a current factory.`,
+      );
+      continue;
+    }
+
     let action;
     try {
       action = await nextAction(m);
@@ -197,7 +220,6 @@ async function tick() {
     try {
       const tx = await send(m.address, action.entrypoint, action.calldata);
       log(`${short(address)} ${action.entrypoint} (${action.why}) → ${tx.slice(0, 12)}…`);
-      if (action.entrypoint === "settle_batch") revealingSince.delete(`${m.address}:${m.batch}`);
     } catch (e) {
       const msg = e.message ?? "";
       // WRONG_PHASE means somebody else advanced it first. That is the design working: the
@@ -212,12 +234,58 @@ async function tick() {
 }
 
 log(`keeper up · factory ${short(FACTORY)} · as ${short(ADDRESS)}`);
-log(`min bets ${MIN_BETS} · reveal window ${REVEAL_WINDOW_MS / 1000}s · poll ${POLL_MS / 1000}s`);
+log(`min bets ${MIN_BETS} · poll ${POLL_MS / 1000}s · holds no state`);
+log("reveal windows come from each market's contract, not from here");
 log("it will never reveal an order — that needs the bettor's own secret");
 
-await tick();
+/**
+ * Ticks never overlap.
+ *
+ * A tick makes one RPC call per market plus one per order, so under load it can take longer
+ * than the poll interval. A bare setInterval would then start a second pass while the first
+ * was mid-flight, and both would decide the same market needed the same call — two
+ * transactions from one account for one action, which collide on the nonce. One of them
+ * fails, and the failure looks like a contract problem rather than a scheduling one.
+ */
+let running = false;
+async function safeTick() {
+  if (running) {
+    log("previous pass still running, skipping this one");
+    return;
+  }
+  running = true;
+  try {
+    await tick();
+  } catch (e) {
+    // A tick must never take the process down: whatever went wrong, the next pass re-reads
+    // everything from the chain and has no stale state to recover from.
+    log("pass failed:", e?.message?.slice(0, 140) ?? e);
+  } finally {
+    running = false;
+  }
+}
+
+// A rejected promise nobody awaited used to be a silent exit. On a server that reads as the
+// keeper "just stopping", with no line in the log saying why.
+process.on("unhandledRejection", (e) => {
+  log("unhandled rejection:", e?.message?.slice(0, 140) ?? e);
+});
+
+await safeTick();
+
 if (!ONCE) {
-  setInterval(() => {
-    void tick();
+  const timer = setInterval(() => {
+    void safeTick();
   }, POLL_MS);
+
+  // Platforms stop a worker with SIGTERM and follow up with SIGKILL. Nothing here needs to be
+  // flushed — there is no state — so this exists only so the shutdown appears in the log
+  // instead of the process vanishing.
+  for (const sig of ["SIGTERM", "SIGINT"]) {
+    process.on(sig, () => {
+      log(`${sig} — stopping. Rounds stay where they are; any keeper can pick them up.`);
+      clearInterval(timer);
+      process.exit(0);
+    });
+  }
 }

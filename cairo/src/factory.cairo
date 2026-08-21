@@ -46,6 +46,7 @@ pub trait IAtrumFactory<TState> {
         resolution_source: ByteArray,
         settle_after: u64,
         resolve_deadline: u64,
+        reveal_window: u64,
         salt: felt252,
     ) -> ContractAddress;
 
@@ -124,6 +125,7 @@ pub mod AtrumFactory {
             resolution_source: ByteArray,
             settle_after: u64,
             resolve_deadline: u64,
+            reveal_window: u64,
             salt: felt252,
         ) -> ContractAddress {
             let creator = get_caller_address();
@@ -140,6 +142,7 @@ pub mod AtrumFactory {
             resolution_source.serialize(ref calldata);
             calldata.append(settle_after.into());
             calldata.append(resolve_deadline.into());
+            calldata.append(reveal_window.into());
 
             // `deploy_from_zero: false` mixes the deployer address into the salt, so two
             // creators picking the same salt get different addresses instead of one of them

@@ -1,0 +1,78 @@
+# The keeper, on a schedule, for free.
+#
+# WHY THIS EXISTS ALONGSIDE render.yaml
+#
+# Two ways to run the same process. The Render worker polls continuously and costs money; this
+# runs one pass every five minutes and costs nothing. Both are correct, and which is right
+# depends on how quickly rounds should turn over rather than on how much you trust the runner.
+#
+# WHY A FIVE-MINUTE CRON IS NOT A COMPROMISE ON SAFETY
+#
+# It would have been, once. When the reveal window was a timer inside the keeper process, a
+# run that started fresh every five minutes had no memory of when a round closed, so it either
+# waited from scratch every time or cleared something it should not have.
+#
+# The window now lives in each market's contract: `close_batch` stamps the time and `clear`
+# refuses until the window has elapsed. A keeper cannot clear early no matter how it is
+# scheduled, and a keeper that arrives late costs a round nothing but the delay. So the cadence
+# here is a latency decision, not a security one — which is the whole reason the timer was
+# moved onto the chain.
+#
+# WHAT IT CANNOT DO
+#
+# Reveal an order. That needs the bettor's own secret, and a keeper that could reveal an order
+# could read one, which would make the seal decoration.
+#
+# THE KEY
+#
+# `KEEPER_PRIVATE_KEY` is a repository secret. GitHub does not expose secrets to workflows
+# triggered from forks, so a pull request cannot read it. The account needs gas and nothing
+# else — it holds no collateral and has no privileged role in any contract — so treat it as
+# disposable and fund it thinly.
+
+name: keeper
+
+on:
+  schedule:
+    # Every five minutes: the shortest interval GitHub accepts. Scheduled runs are also
+    # delayed under load, sometimes by a good few minutes. Both facts are fine here, per the
+    # note above; neither would have been before the window moved on-chain.
+    - cron: "*/5 * * * *"
+  # So a round can be pushed along by hand without waiting for the next tick.
+  workflow_dispatch:
+
+# A second pass starting while the first is mid-flight would have both of them decide the same
+# market needs the same call, and the two transactions would collide on the account nonce. One
+# fails, and the failure reads as a contract problem rather than a scheduling one.
+concurrency:
+  group: keeper-sepolia
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    # A single pass is seconds of work. The cap is here so a hung RPC endpoint cannot sit and
+    # burn the account's minutes until the next run cancels it.
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: keeper/package-lock.json
+
+      # `npm ci` installs exactly the tracked lockfile, so a scheduled run cannot quietly
+      # pick up a different starknet.js than the one this was tested against.
+      - run: npm ci
+        working-directory: keeper
+
+      - run: npm run once
+        working-directory: keeper
+        env:
+          KEEPER_RPC: ${{ vars.KEEPER_RPC || 'https://api.cartridge.gg/x/starknet/sepolia' }}
+          KEEPER_FACTORY: ${{ vars.KEEPER_FACTORY }}
+          KEEPER_ADDRESS: ${{ vars.KEEPER_ADDRESS }}
+          KEEPER_PRIVATE_KEY: ${{ secrets.KEEPER_PRIVATE_KEY }}
+          KEEPER_MIN_BETS: ${{ vars.KEEPER_MIN_BETS || '2' }}

@@ -15,3 +15,13 @@ casm = true
 
 [scripts]
 test = "snforge test"
+
+
+# Cairo-level backtraces for `SNFORGE_BACKTRACE=1`. Dev profile only -- `deploy.sh` forces
+# `--profile release`, so none of this debug info reaches a deployed class. Kept because
+# without it an infinite recursion in a test helper reports only as "RunResources has no
+# remaining steps", which reads like a gas ceiling and sends you looking in the wrong place.
+[profile.dev.cairo]
+unstable-add-statements-functions-debug-info = true
+unstable-add-statements-code-locations-debug-info = true
+panic-backtrace = true

@@ -51,6 +51,7 @@ fn anyone_can_create_a_market_and_becomes_its_resolver() {
             "IMD daily rainfall record, Safdarjung",
             1000,
             2000,
+            300,
             'salt-1',
         );
     stop_cheat_caller_address(f.contract_address);
@@ -72,11 +73,11 @@ fn markets_are_isolated_from_each_other() {
     let f = setup();
 
     start_cheat_caller_address(f.contract_address, ALICE());
-    let a = f.create_market("Question A?", "Source A", 1000, 2000, 'sa');
+    let a = f.create_market("Question A?", "Source A", 1000, 2000, 300, 'sa');
     stop_cheat_caller_address(f.contract_address);
 
     start_cheat_caller_address(f.contract_address, BOB());
-    let b = f.create_market("Question B?", "Source B", 3000, 4000, 'sb');
+    let b = f.create_market("Question B?", "Source B", 3000, 4000, 300, 'sb');
     stop_cheat_caller_address(f.contract_address);
 
     assert(a != b, 'distinct addresses');
@@ -109,10 +110,10 @@ fn two_creators_can_use_the_same_salt() {
     // deploy_from_zero: false mixes the deployer in, so a salt collision between two
     // unrelated creators does not revert for whoever is second.
     start_cheat_caller_address(f.contract_address, ALICE());
-    let a = f.create_market("A?", "S", 1000, 2000, 'same');
+    let a = f.create_market("A?", "S", 1000, 2000, 300, 'same');
     stop_cheat_caller_address(f.contract_address);
     start_cheat_caller_address(f.contract_address, BOB());
-    let b = f.create_market("B?", "S", 1000, 2000, 'same');
+    let b = f.create_market("B?", "S", 1000, 2000, 300, 'same');
     stop_cheat_caller_address(f.contract_address);
     assert(a != b, 'same salt, different markets');
 }

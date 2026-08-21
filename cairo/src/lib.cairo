@@ -224,6 +224,8 @@ pub mod errors {
     pub const DEADLINE_NOT_PASSED: felt252 = 'DEADLINE_NOT_PASSED';
     pub const BAD_SCHEDULE: felt252 = 'BAD_SCHEDULE';
     pub const EMPTY_QUESTION: felt252 = 'EMPTY_QUESTION';
+    pub const REVEAL_WINDOW_OPEN: felt252 = 'REVEAL_WINDOW_OPEN';
+    pub const BAD_REVEAL_WINDOW: felt252 = 'BAD_REVEAL_WINDOW';
 }
 
 /// Domain separator, so an auction commitment can never collide with a hash from another
@@ -263,6 +265,37 @@ pub const TICK: u8 = 5;
 /// escrow of 6 * 10^17 against a required 60 and rejected every order that had actually been
 /// funded correctly.
 pub const UNIT_SCALE: u128 = 10_000_000_000_000_000;
+
+/// The shortest reveal window a market may be created with, in seconds.
+///
+/// WHY THIS EXISTS AT ALL
+///
+/// `close_batch` and `clear` are both permissionless, and that is deliberate — a market must
+/// not depend on one keeper staying alive. But it means the same caller can do both, and if
+/// `clear` were callable the instant a round closed, a keeper could close and clear in a single
+/// transaction. Every bet whose owner had not revealed in that zero-width window would be
+/// excluded from the auction. Their stake comes back, so nothing is stolen; their trade simply
+/// never happens, and the on-chain record looks identical to an honest clearing.
+///
+/// That was previously prevented by the keeper politely waiting. Politeness is not a security
+/// property: it is unverifiable from outside, unenforceable against a hostile keeper, and — as
+/// the keeper held the timer in memory — lost on every restart.
+///
+/// So the chain holds the timer. `close_batch` stamps the time, `clear` refuses until the
+/// window has passed, and the window itself is fixed at construction with no setter. A trader
+/// can therefore read, *before committing*, exactly how long they will have to reveal.
+///
+/// The floor only blocks the degenerate case. The real protection is that the value is public
+/// and immutable per market, so an unreasonably short window is visible in advance rather than
+/// discovered afterwards.
+pub const MIN_REVEAL_WINDOW: u64 = 60;
+
+/// The longest reveal window a market may be created with, in seconds (7 days).
+///
+/// An absurd window would leave a closed round unclearable and its escrow stuck until the
+/// refund deadline. `force_refund` would eventually free the money, but a market that can only
+/// end in a refund is not a market.
+pub const MAX_REVEAL_WINDOW: u64 = 604_800;
 
 /// A holder's pseudonym. Derived from a secret they keep, so the chain sees a stable
 /// identity across batches without ever seeing a person behind it.
@@ -352,6 +385,8 @@ pub trait IAtrumAuction<TState> {
     fn get_order_count(self: @TState, batch: u64) -> u32;
     fn get_outcome(self: @TState) -> u8;
     fn get_batch_commitment(self: @TState, batch: u64, index: u32) -> felt252;
+    fn get_reveal_window(self: @TState) -> u64;
+    fn get_closed_at(self: @TState, batch: u64) -> u64;
 }
 
 #[starknet::contract]
@@ -363,8 +398,9 @@ pub mod AtrumAuction {
         ContractAddress, get_block_timestamp, get_caller_address, get_contract_address,
     };
     use super::{
-        AuctionOperation, IErc20Dispatcher, IErc20DispatcherTrait, OpenNoteDeposit, Order, Phase,
-        Position, TICK, UNIT_SCALE, compute_commitment, compute_holder, errors,
+        AuctionOperation, IErc20Dispatcher, IErc20DispatcherTrait, MAX_REVEAL_WINDOW,
+        MIN_REVEAL_WINDOW, OpenNoteDeposit, Order, Phase, Position, TICK, UNIT_SCALE,
+        compute_commitment, compute_holder, errors,
     };
 
     #[storage]
@@ -395,6 +431,13 @@ pub mod AtrumAuction {
         batch_index: Map<(u64, u32), felt252>,
         order_count: Map<u64, u32>,
         clearing_price: Map<u64, u8>,
+        /// How long after a round closes before it may be cleared. Written once in the
+        /// constructor; see MIN_REVEAL_WINDOW for why it is a protocol rule and not a keeper
+        /// setting.
+        reveal_window: u64,
+        /// batch -> the block timestamp at which that round stopped accepting orders. Written
+        /// by `close_batch`, read by `clear`. Per-batch because rounds recur.
+        closed_at: Map<u64, u64>,
     }
 
     #[event]
@@ -478,12 +521,19 @@ pub mod AtrumAuction {
         resolution_source: ByteArray,
         settle_after: u64,
         resolve_deadline: u64,
+        reveal_window: u64,
     ) {
         // A market with no question is an auction on abstract tokens. Refuse to deploy one.
         assert(question.len() > 0, errors::EMPTY_QUESTION);
         assert(resolution_source.len() > 0, errors::EMPTY_QUESTION);
         // The refund window has to actually exist, or the trust bound is decorative.
         assert(resolve_deadline > settle_after, errors::BAD_SCHEDULE);
+        // A market that cannot promise its bidders time to reveal is not one they should be
+        // able to bid into unknowingly.
+        assert(
+            reveal_window >= MIN_REVEAL_WINDOW && reveal_window <= MAX_REVEAL_WINDOW,
+            errors::BAD_REVEAL_WINDOW,
+        );
 
         self.pool.write(pool);
         self.token.write(token);
@@ -492,6 +542,7 @@ pub mod AtrumAuction {
         self.resolution_source.write(resolution_source);
         self.settle_after.write(settle_after);
         self.resolve_deadline.write(resolve_deadline);
+        self.reveal_window.write(reveal_window);
         self.batch.write(0);
         self.phase.write(Phase::Open);
         self.outcome.write(0);
@@ -528,6 +579,9 @@ pub mod AtrumAuction {
 
         fn close_batch(ref self: ContractState) {
             assert(self.phase.read() == Phase::Open, errors::WRONG_PHASE);
+            // Stamped here so `clear` measures the reveal window against a time the chain
+            // agrees on, rather than against however long some keeper happened to be running.
+            self.closed_at.entry(self.batch.read()).write(get_block_timestamp());
             self.phase.write(Phase::Revealing);
         }
 
@@ -579,6 +633,14 @@ pub mod AtrumAuction {
             let batch = self.batch.read();
             let count = self.order_count.entry(batch).read();
             assert(count != 0, errors::NO_ORDERS);
+
+            // Nobody clears a round out from under bidders who still have time to reveal —
+            // including whoever closed it, in the same transaction, on purpose.
+            let opened = self.closed_at.entry(batch).read();
+            assert(
+                get_block_timestamp() >= opened + self.reveal_window.read(),
+                errors::REVEAL_WINDOW_OPEN,
+            );
 
             let (price, matched) = self.find_clearing_price(batch, count);
             self.clearing_price.entry(batch).write(price);
@@ -731,6 +793,14 @@ pub mod AtrumAuction {
         fn get_outcome(self: @ContractState) -> u8 {
             self.outcome.read()
         }
+        fn get_reveal_window(self: @ContractState) -> u64 {
+            self.reveal_window.read()
+        }
+
+        fn get_closed_at(self: @ContractState, batch: u64) -> u64 {
+            self.closed_at.entry(batch).read()
+        }
+
         fn get_batch_commitment(self: @ContractState, batch: u64, index: u32) -> felt252 {
             self.batch_index.entry((batch, index)).read()
         }

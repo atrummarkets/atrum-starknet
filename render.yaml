@@ -1,0 +1,92 @@
+# Render blueprint for the keeper.
+#
+# WHAT THIS RUNS
+#
+# One background worker per network. A keeper closes, clears and settles auction rounds so
+# that traders never have to touch an exchange's internal machinery themselves. It cannot
+# reveal an order, cannot move anyone's money, and cannot choose an outcome — see
+# keeper/README.md for why each of those is structural rather than a matter of trust.
+#
+# WHY A WORKER AND NOT A WEB SERVICE
+#
+# Nothing ever calls the keeper; it calls the chain. A web service would need an HTTP port it
+# has no use for, and on Render's free tier it would be put to sleep after fifteen minutes of
+# receiving no requests — which for a process whose entire job is to keep polling is not
+# idleness, it is failure. A worker has no port and is not slept.
+#
+# WHY IT IS SAFE TO RUN MORE THAN ONE
+#
+# Every call the keeper makes is permissionless, and the reveal window is enforced by each
+# market's own contract rather than by a timer in this process. So two keepers cannot race to
+# anyone's disadvantage: whoever gets there first advances the round, and the other is told
+# WRONG_PHASE, which is success reported as an error. Redundancy needs no coordination.
+#
+# WHY IT IS SAFE FOR IT TO DIE
+#
+# It holds no state. On restart it re-reads every deadline from the chain, so a deploy, a
+# crash or a platform migration costs a round nothing but a little time. A market never
+# depends on any particular keeper being alive.
+#
+# SECRETS
+#
+# `sync: false` means Render will not read the value from this file — it is set once in the
+# dashboard and never committed. The keeper's account needs gas and nothing else: it holds no
+# collateral, is not a market owner or resolver, and has no privileged role in any contract.
+# Fund it thinly and treat it as disposable.
+
+services:
+  - type: worker
+    name: atrum-keeper-sepolia
+    runtime: node
+    plan: starter
+    rootDir: keeper
+    # `npm ci` rather than `npm install`: installs exactly the tracked lockfile, so the build
+    # cannot quietly pick up a different starknet.js than the one this was tested against.
+    buildCommand: npm ci
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: KEEPER_RPC
+        # Public endpoints rate-limit, and a rate-limited keeper looks exactly like a dead
+        # one. Override in the dashboard with a dedicated endpoint before relying on this.
+        value: https://api.cartridge.gg/x/starknet/sepolia
+      - key: KEEPER_FACTORY
+        sync: false
+      - key: KEEPER_ADDRESS
+        sync: false
+      - key: KEEPER_PRIVATE_KEY
+        sync: false
+      - key: KEEPER_POLL_MS
+        value: "30000"
+      - key: KEEPER_MIN_BETS
+        # A round of one order cannot cross with anything, so closing it would only lock the
+        # single bidder up until the next round for no gain.
+        value: "2"
+
+  - type: worker
+    name: atrum-keeper-mainnet
+    runtime: node
+    plan: starter
+    rootDir: keeper
+    buildCommand: npm ci
+    startCommand: npm start
+    # Off until a mainnet factory exists. Suspended rather than deleted so the network's
+    # settings live beside Sepolia's instead of in someone's memory.
+    autoDeploy: false
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: KEEPER_RPC
+        sync: false
+      - key: KEEPER_FACTORY
+        sync: false
+      - key: KEEPER_ADDRESS
+        sync: false
+      - key: KEEPER_PRIVATE_KEY
+        sync: false
+      - key: KEEPER_POLL_MS
+        value: "60000"
+      - key: KEEPER_MIN_BETS
+        value: "2"
