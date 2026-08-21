@@ -1,40 +1,83 @@
 "use client";
 
 /**
- * Positions across every market.
+ * Everything you have riding, across every market.
  *
- * Read per market from the chain against this browser's holder pseudonym. There is no
- * server and no account: if you clear this browser's storage without exporting the backup,
- * nobody can reconstruct which positions were yours — including us. The page says so.
+ * THE FIX THIS PAGE EXISTS FOR
+ *
+ * It used to list settled positions only. Positions are created when a batch SETTLES, so
+ * someone who had just placed three bets saw "no positions yet" and a zero balance while
+ * several STRK of theirs sat escrowed in a contract. Technically accurate, and it reads as
+ * "my money is gone".
+ *
+ * So open bets come first now, and settled positions after. Staked-but-unsettled is the
+ * normal state of a batch auction — a bet waits for its round to close, and a page that only
+ * understands the end state cannot show you the middle.
  */
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Shell } from "@/components/Shell";
 import { fmtStrk } from "@/lib/atrum/config";
-import { computeHolder, exportBackup, holderSecret, listOrders } from "@/lib/atrum/orders";
+import {
+  computeHolder,
+  exportBackup,
+  holderSecret,
+  listOrders,
+  markOnChain,
+  type StoredOrder,
+} from "@/lib/atrum/orders";
 import { readPosition, type Position } from "@/lib/atrum/useMarket";
 import { useMarkets, type MarketCard } from "@/lib/atrum/useMarkets";
+import { provider } from "@/lib/atrum/wallet";
 
 const APP_ENABLED = process.env.NEXT_PUBLIC_ENABLE_APP === "1";
 const NETNAME = process.env.NEXT_PUBLIC_STARKNET_NETWORK ?? "sepolia";
 
-type Row = { m: MarketCard; p: Position };
+type Row = { m: MarketCard; p: Position; open: StoredOrder[] };
 
 export default function Portfolio() {
   const { markets } = useMarkets();
   const [rows, setRows] = useState<Row[] | null>(null);
-  const [orderCount, setOrderCount] = useState(0);
 
   useEffect(() => {
     if (!markets) return;
     const holder = computeHolder(holderSecret());
-    void Promise.all(
-      markets.map(async (m) => ({ m, p: await readPosition(m.address, holder) })),
-    ).then((all) =>
-      // Only markets you actually touched. An empty row per market would bury the signal.
-      setRows(all.filter((r) => r.p.yesUnits || r.p.noUnits || r.p.collateral)),
-    );
-    setOrderCount(listOrders(NETNAME).length);
+
+    void (async () => {
+      const all = await Promise.all(
+        markets.map(async (m) => {
+          const local = listOrders(NETNAME, m.address);
+
+          // Confirm against the contract rather than trusting our own bookkeeping — a
+          // relayed transaction can land while the client loses its hash.
+          await Promise.all(
+            local
+              .filter((o) => !o.onChain)
+              .map(async (o) => {
+                try {
+                  const r = await provider().callContract({
+                    contractAddress: m.address,
+                    entrypoint: "get_order",
+                    calldata: [o.commitment],
+                  });
+                  if (BigInt(r[0]) !== 0n) markOnChain(o.commitment);
+                } catch {
+                  /* leave unconfirmed */
+                }
+              }),
+          );
+
+          const open = listOrders(NETNAME, m.address).filter((o) => o.onChain);
+          const p = await readPosition(m.address, holder);
+          return { m, p, open };
+        }),
+      );
+      setRows(
+        all.filter(
+          (r) => r.open.length > 0 || r.p.yesUnits || r.p.noUnits || r.p.collateral,
+        ),
+      );
+    })();
   }, [markets]);
 
   function download() {
@@ -59,68 +102,123 @@ export default function Portfolio() {
     );
   }
 
-  const totalOwed = rows?.reduce((n, r) => n + r.p.collateral, 0n) ?? 0n;
+  const staked =
+    rows?.reduce((n, r) => n + r.open.reduce((k, o) => k + BigInt(o.escrow), 0n), 0n) ?? 0n;
+  const withdrawable = rows?.reduce((n, r) => n + r.p.collateral, 0n) ?? 0n;
+  const openCount = rows?.reduce((n, r) => n + r.open.length, 0) ?? 0;
 
   return (
     <Shell>
       <div className="section-head">
-        <h2>Portfolio</h2>
+        <h2>Your bets</h2>
         <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--text-3)" }}>
-          {orderCount} order{orderCount === 1 ? "" : "s"} placed from this browser
+          {openCount} live
         </span>
       </div>
 
-      <div className="panel">
-        <p className="panel-label">Withdrawable across all markets</p>
-        <div className="sealed">
-          <span className="sealed-n">{fmtStrk(totalOwed)}</span>
-          <span className="sealed-cap">STRK ready to withdraw into a private note</span>
+      {/* Two headline numbers, because a bet is either riding or finished. */}
+      <div className="grid-2">
+        <div className="panel">
+          <p className="panel-label">Riding on open bets</p>
+          <div className="sealed">
+            <span className="sealed-n" style={{ fontVariantNumeric: "proportional-nums" }}>
+              {fmtStrk(staked)}
+            </span>
+            <span className="sealed-cap">
+              STRK staked and sealed, waiting for a round to close
+            </span>
+          </div>
+        </div>
+        <div className="panel">
+          <p className="panel-label">Ready to take out</p>
+          <div className="sealed">
+            <span className="sealed-n" style={{ fontVariantNumeric: "proportional-nums" }}>
+              {fmtStrk(withdrawable)}
+            </span>
+            <span className="sealed-cap">STRK you can withdraw privately</span>
+          </div>
         </div>
       </div>
 
-      {rows === null && <p className="msg-line">Reading positions…</p>}
+      {rows === null && <p className="msg-line">Reading the chain…</p>}
 
       {rows?.length === 0 && (
         <div className="panel">
           <p className="notice">
-            No positions yet. <Link href="/app">Find a market</Link>.
+            Nothing yet. <Link href="/app">Find a market</Link>.
           </p>
         </div>
       )}
 
-      {rows?.map(({ m, p }) => (
-        <Link key={m.address} href={`/app/market/${m.address}`} className="panel" style={{ textDecoration: "none", display: "block" }}>
-          <p className="card-q" style={{ marginTop: 0, fontSize: "1.1rem" }}>{m.question}</p>
-          <dl style={{ margin: "0.9rem 0 0" }}>
-            <div className="stat-row">
-              <dt>YES / NO units</dt>
-              <dd>
-                {p.yesUnits.toString()} / {p.noUnits.toString()}
-              </dd>
-            </div>
-            <div className="stat-row">
-              <dt>Withdrawable</dt>
-              <dd className="hi">{fmtStrk(p.collateral)} STRK</dd>
-            </div>
-            {p.yesUnits > 0n && p.noUnits > 0n && (
+      {rows?.map(({ m, p, open }) => (
+        <div className="panel" key={m.address}>
+          <Link href={`/app/market/${m.address}`} style={{ textDecoration: "none" }}>
+            <p className="card-q" style={{ marginTop: 0, fontSize: "1.08rem" }}>
+              {m.question}
+            </p>
+          </Link>
+
+          {open.length > 0 && (
+            <>
+              <p className="panel-label" style={{ margin: "1rem 0 0.4rem" }}>
+                Open bets · round {m.batch}
+              </p>
+              <div className="orders">
+                {open.map((o) => (
+                  <div className="order" key={o.commitment}>
+                    <div>
+                      <div className="order-terms">
+                        <b>{o.side === 1 ? "YES" : "NO"}</b> · {o.units} share
+                        {o.units === "1" ? "" : "s"} · risking {fmtStrk(BigInt(o.escrow))} STRK
+                      </div>
+                      <div className="order-id">
+                        {o.revealed ? "revealed — waiting to settle" : "sealed — nobody can read it"}
+                      </div>
+                    </div>
+                    <span className={`badge ${o.revealed ? "badge-revealed" : "badge-filled"}`}>
+                      {o.revealed ? "revealed" : "sealed"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="notice">
+                These settle when the round closes and someone has taken the other side. Until
+                then the stake is held by the contract, not by us.
+              </p>
+            </>
+          )}
+
+          {(p.yesUnits > 0n || p.noUnits > 0n || p.collateral > 0n) && (
+            <dl style={{ margin: "1rem 0 0" }}>
               <div className="stat-row">
-                <dt>Complete sets — exit available</dt>
-                <dd className="hi">
-                  {(p.yesUnits < p.noUnits ? p.yesUnits : p.noUnits).toString()}
+                <dt>YES / NO shares held</dt>
+                <dd>
+                  {p.yesUnits.toString()} / {p.noUnits.toString()}
                 </dd>
               </div>
-            )}
-          </dl>
-        </Link>
+              <div className="stat-row">
+                <dt>Ready to withdraw</dt>
+                <dd className="hi">{fmtStrk(p.collateral)} STRK</dd>
+              </div>
+              {p.yesUnits > 0n && p.noUnits > 0n && (
+                <div className="stat-row">
+                  <dt>Matched pairs — you can cash out now</dt>
+                  <dd className="hi">
+                    {(p.yesUnits < p.noUnits ? p.yesUnits : p.noUnits).toString()}
+                  </dd>
+                </div>
+              )}
+            </dl>
+          )}
+        </div>
       ))}
 
       <div className="panel">
         <p className="panel-label">This is the only copy</p>
         <p className="notice notice-warn">
-          Your positions are held against a pseudonym derived from a secret in this browser,
-          and your order salts live here too. There is no account and no server copy — clear
-          this browser without a backup and nobody can prove which positions were yours,
-          including us.{" "}
+          Your bets are tied to a secret held only in this browser. There is no account and no
+          server copy — that is what makes them yours alone, and it means losing this browser
+          loses them. Nobody can recover it, us included.{" "}
           <button className="btn btn-ghost btn-sm" onClick={download}>
             Download backup
           </button>
