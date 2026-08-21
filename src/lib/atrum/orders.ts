@@ -31,9 +31,12 @@ export type StoredOrder = {
   network: string;
   /** Which market this order belongs to. Without it the list showed every market at once. */
   market: string;
-  /** Absent until the transaction is actually submitted. A record with no hash is an
-   *  ABANDONED ATTEMPT, not a sealed order, and must not be displayed as one. */
+  /** Absent if the client never received it — which happens, and does NOT mean the order
+   *  failed. Never used to decide whether an order exists. */
   txHash?: string;
+  /** Set once the CONTRACT confirms it holds this commitment. This is the only thing that
+   *  proves an order is real. */
+  onChain?: boolean;
   submittedAt: number;
   revealed?: boolean;
 };
@@ -103,6 +106,24 @@ export function markTx(commitment: string, txHash: string) {
   }
 }
 
+/**
+ * Mark a record as confirmed on-chain.
+ *
+ * Called after asking the contract whether it holds the commitment, NOT after a promise
+ * resolved. A transaction can land while the client loses its hash -- the relayer submits it
+ * and the response never makes it back -- and when that happened the UI called a real,
+ * funded order "not submitted". The chain is the authority on what exists; our bookkeeping
+ * is not.
+ */
+export function markOnChain(commitment: string) {
+  const s = read();
+  const o = s.orders.find((x) => x.commitment === commitment);
+  if (o && !o.onChain) {
+    o.onChain = true;
+    write(s);
+  }
+}
+
 export function markRevealed(commitment: string) {
   const s = read();
   const o = s.orders.find((x) => x.commitment === commitment);
@@ -129,9 +150,14 @@ export function listOrders(network: string, market?: string): StoredOrder[] {
   );
 }
 
-/** Attempts whose transaction never landed. Safe to remove: nothing was escrowed. */
+/**
+ * Attempts the CONTRACT does not know about. Safe to remove: nothing was escrowed.
+ *
+ * Keyed on `onChain`, never on `txHash`. A missing hash means the client lost track of a
+ * transaction; a missing on-chain record means there is no order.
+ */
 export function abandoned(network: string, market?: string): StoredOrder[] {
-  return listOrders(network, market).filter((o) => !o.txHash);
+  return listOrders(network, market).filter((o) => !o.onChain);
 }
 
 /**
@@ -146,7 +172,7 @@ export function purgeAbandoned(network: string, market?: string): number {
   const before = st.orders.length;
   st.orders = st.orders.filter(
     (o) =>
-      Boolean(o.txHash) ||
+      Boolean(o.onChain) ||
       o.network !== network ||
       (market !== undefined && o.market !== market),
   );

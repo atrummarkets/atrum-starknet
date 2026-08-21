@@ -17,10 +17,12 @@ import {
   exportBackup,
   holderSecret,
   listOrders,
+  markOnChain,
   markRevealed,
   purgeAbandoned,
   type StoredOrder,
 } from "@/lib/atrum/orders";
+import { provider } from "@/lib/atrum/wallet";
 import { readPosition, type Market, type Position } from "@/lib/atrum/useMarket";
 import { submit, withdrawActions } from "@/lib/atrum/wallet";
 
@@ -60,7 +62,34 @@ export function Positions({
   const [msg, setMsg] = useState<{ k: "ok" | "err" | ""; t: string }>({ k: "", t: "" });
   const [mergeUnits, setMergeUnits] = useState("1");
 
+  /**
+   * Reconcile local records against the contract before showing anything.
+   *
+   * For each order we know about, ask the market whether it holds that commitment. That is
+   * the only reliable test: a transaction can land while the client loses its hash, and
+   * trusting our own bookkeeping made a real, funded order display as "not submitted".
+   *
+   * Cheap to do — the commitment is already known locally, so it is one view call each.
+   */
   const reload = useCallback(async () => {
+    const local = listOrders(NETNAME, marketAddress);
+    await Promise.all(
+      local
+        .filter((o) => !o.onChain)
+        .map(async (o) => {
+          try {
+            const r = await provider().callContract({
+              contractAddress: marketAddress,
+              entrypoint: "get_order",
+              calldata: [o.commitment],
+            });
+            // A non-zero escrow means the contract really holds it.
+            if (BigInt(r[0]) !== 0n) markOnChain(o.commitment);
+          } catch {
+            /* leave it unconfirmed rather than guessing */
+          }
+        }),
+    );
     setOrders(listOrders(NETNAME, marketAddress));
     try {
       setPos(await readPosition(marketAddress, computeHolder(holderSecret())));
@@ -213,16 +242,14 @@ export function Positions({
               <div className="btn-row">
                 <span
                   className={`badge ${
-                    !o.txHash ? "badge-sealed" : o.revealed ? "badge-revealed" : "badge-filled"
+                    !o.onChain ? "badge-sealed" : o.revealed ? "badge-revealed" : "badge-filled"
                   }`}
-                  style={!o.txHash ? { opacity: 0.55 } : undefined}
+                  style={!o.onChain ? { opacity: 0.55 } : undefined}
                 >
-                  {/* An attempt with no transaction hash never reached the chain and never
-                      escrowed anything. Showing it as "sealed" beside a real order was a
-                      straight lie about what exists. */}
-                  {!o.txHash ? "not submitted" : o.revealed ? "revealed" : "sealed"}
+                  {/* Status comes from the CONTRACT, not from whether we captured a hash. */}
+                  {!o.onChain ? "not on-chain" : o.revealed ? "revealed" : "sealed"}
                 </span>
-                {o.txHash && !o.revealed && market?.phase === "Revealing" && (
+                {o.onChain && !o.revealed && market?.phase === "Revealing" && (
                   <button
                     className="btn btn-sm"
                     disabled={!account || busy !== null}
@@ -247,12 +274,12 @@ export function Positions({
             </div>
           ))}
         </div>
-        {orders.some((o) => !o.txHash) && (
+        {orders.some((o) => !o.onChain) && (
           <p className="notice">
-            {orders.filter((o) => !o.txHash).length} attempt
-            {orders.filter((o) => !o.txHash).length === 1 ? "" : "s"} never reached the chain
-            and escrowed nothing — a record is written before signing so a dying tab cannot
-            strand funds, and these are the leftovers.{" "}
+            {orders.filter((o) => !o.onChain).length} record
+            {orders.filter((o) => !o.onChain).length === 1 ? "" : "s"} the contract does not
+            hold — nothing was escrowed. A record is written before signing so a dying tab
+            cannot strand funds, and these are the leftovers.{" "}
             <button
               className="btn btn-ghost btn-sm"
               onClick={() => {
@@ -265,7 +292,7 @@ export function Positions({
           </p>
         )}
 
-        {market?.phase === "Revealing" && orders.some((o) => o.txHash && !o.revealed) && (
+        {market?.phase === "Revealing" && orders.some((o) => o.onChain && !o.revealed) && (
           <p className="notice notice-warn">
             Reveal before the batch clears or your order takes no part in it — the escrow
             comes back in full, but you will not have traded.

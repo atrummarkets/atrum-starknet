@@ -55,7 +55,9 @@ export function Autopilot({
   const inFlight = useRef(false);
 
   const mine = listOrders(NETNAME).filter((o) => o.batch === market?.batch);
-  const unrevealed = mine.filter((o) => !o.revealed);
+  // Only orders the contract confirms it holds. Revealing one it does not know about
+  // would revert, and revert repeatedly on a poll.
+  const unrevealed = mine.filter((o) => o.onChain && !o.revealed);
 
   /** What, if anything, is due right now. */
   const nextJob = useCallback((): Job | null => {
