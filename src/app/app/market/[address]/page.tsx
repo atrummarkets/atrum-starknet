@@ -14,8 +14,6 @@ import { motion, useReducedMotion } from "motion/react";
 import type { WalletAccountV6 } from "starknet";
 import { Shell } from "@/components/Shell";
 import { Connect } from "@/components/Connect";
-import { Shield } from "@/components/Shield";
-import { Register } from "@/components/Register";
 import { Disclosure, MarketHeader } from "@/components/Market";
 import { Keeper } from "@/components/Keeper";
 import { Autopilot } from "@/components/Autopilot";
@@ -26,6 +24,8 @@ import { OrderTicket } from "@/components/OrderTicket";
 import { Positions } from "@/components/Positions";
 import { NET, POOL_FEE_FALLBACK } from "@/lib/atrum/config";
 import { useMarket } from "@/lib/atrum/useMarket";
+import { useSetup } from "@/lib/atrum/useSetup";
+import { listOrders } from "@/lib/atrum/orders";
 import { readPoolFee } from "@/lib/atrum/wallet";
 
 const APP_ENABLED = process.env.NEXT_PUBLIC_ENABLE_APP === "1";
@@ -49,7 +49,7 @@ export default function MarketPage() {
   const [address, setAddress] = useState("");
   const [poolFee, setPoolFee] = useState<bigint>(POOL_FEE_FALLBACK[NET]);
   const [nonce, setNonce] = useState(0);
-  const [registered, setRegistered] = useState(false);
+  const { enrolled } = useSetup(address);
   const history = usePriceHistory(marketAddress, market?.batch ?? 0);
 
   useEffect(() => {
@@ -104,23 +104,21 @@ export default function MarketPage() {
         <PriceHistory points={history} />
       </motion.div>
 
-      {address && (
-        <motion.div {...rise(0.12, reduced)}>
-          <Register address={address} onStatus={setRegistered} />
-        </motion.div>
-      )}
-
-      <motion.div {...rise(0.14, reduced)}>
-        <Shield account={account} poolFee={poolFee} registered={registered} onDone={bump} />
-      </motion.div>
-
       <motion.div className="grid-2" {...rise(0.22, reduced)}>
         <OrderTicket
           account={account}
           address={address}
           marketAddress={marketAddress}
           batch={market?.batch ?? 0}
-          canTrade={market?.phase === "Open" && registered}
+          canTrade={market?.phase === "Open"}
+          enrolled={enrolled}
+          settleAfter={market?.settleAfter ?? 0}
+          openOrdersSameSide={
+            listOrders(
+              process.env.NEXT_PUBLIC_STARKNET_NETWORK ?? "sepolia",
+              marketAddress,
+            ).filter((o) => o.onChain && !o.revealed && o.batch === (market?.batch ?? 0)).length
+          }
           poolFee={poolFee}
           onPlaced={bump}
         />

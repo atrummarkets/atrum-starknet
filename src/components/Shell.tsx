@@ -13,6 +13,7 @@ import { NET } from "@/lib/atrum/config";
 const NAV = [
   { href: "/app", label: "Markets" },
   { href: "/app/portfolio", label: "Portfolio" },
+  { href: "/app/setup", label: "Setup" },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {
