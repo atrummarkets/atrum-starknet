@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Step zero — registering a viewing key.
+ * Step zero — a viewing key on file.
  *
  * Every pool user registers exactly once, on-chain, and NOTHING private works before that:
  * not a transfer, not a shield. The pool publishes your public viewing key so relayers can
@@ -13,14 +13,21 @@
  * and is really "you have not enrolled yet". The pool exposes `get_public_key(address)`, so
  * the state is READABLE — there is no excuse for making someone discover it by failing.
  *
- * WHY WE LINK OUT INSTEAD OF DOING IT HERE
+ * WHOSE JOB IS THIS
  *
- * Registration is a signature-derived key, not a plain transaction: sign `chainId:poolAddress`,
- * fold the signature with Poseidon, reduce into the curve order, publish the public half. The
- * derivation has to match the pool's expectation EXACTLY, because a key derived even slightly
- * differently registers successfully and then silently fails to decrypt anything ever sent to
- * you. Until we can test that against a real wallet, sending people to the official app is the
- * honest choice. Doing it ourselves is on the list, not in this build.
+ * The wallet's. The STRK20 docs say the wallet registers the sender automatically on first
+ * use, and the wallet API deliberately exposes no `register` method to dapps — there are
+ * exactly three STRK20 methods (`strk20Balances`, `strk20PrepareInvoke`,
+ * `strk20InvokeTransaction`) and none of them is registration.
+ *
+ * That is the right design. The viewing key is derived from a signature and must match the
+ * pool's expectation exactly; a key derived even slightly differently registers SUCCESSFULLY
+ * and then silently fails to decrypt anything ever sent to you. The wallet holds that
+ * derivation, and a dapp reimplementing it would be a dapp that can strand your funds while
+ * appearing to work.
+ *
+ * So this panel does not register. It reads the state and tells you where to do it: turn
+ * privacy on in the wallet once, and the wallet handles the rest.
  */
 import { useCallback, useEffect, useState } from "react";
 import { hash } from "starknet";
@@ -84,28 +91,37 @@ export function Register({
       {state === "unregistered" && (
         <>
           <p className="notice notice-warn">
-            This address has no viewing key yet, so nothing private will work — not an order,
-            not even a shield. Every pool user registers <b>once</b>, on-chain, and the pool
+            This address has no viewing key on file, so nothing private will work yet — not an
+            order, not even a shield. Every pool user enrols <b>once</b>, and the pool then
             publishes the public half so notes can be encrypted to you.
           </p>
+
+          <p className="notice">
+            <b>Your wallet does this, not us.</b> Turn on the privacy / STRK20 feature in Ready
+            once, and it enrols you the first time you use it. The wallet API exposes no
+            registration call to apps on purpose: the key is derived from a signature, and a key
+            derived even slightly differently enrols <em>successfully</em> and then silently
+            fails to decrypt anything ever sent to you. That derivation belongs with whoever
+            holds the key.
+          </p>
+
           <div className="btn-row" style={{ marginTop: "1rem" }}>
+            <button className="btn" onClick={() => void check()}>
+              Re-check
+            </button>
             <a
-              className="btn"
+              className="btn btn-ghost btn-sm"
               href="https://strk20.starknet.io/app"
               target="_blank"
               rel="noreferrer"
             >
-              Register at strk20.starknet.io
+              Or enrol via strk20.starknet.io
             </a>
-            <button className="btn btn-ghost btn-sm" onClick={() => void check()}>
-              I have registered — re-check
-            </button>
           </div>
+
           <p className="notice">
-            We link out rather than doing this here for a reason worth stating: the viewing key
-            is derived from a signature, and a key derived even slightly differently registers
-            fine and then silently fails to decrypt anything ever sent to you. Until we can
-            test our own derivation against a real wallet, the official app is the safer path.
+            Either route works and it is one-time per address. Once the key is on file this
+            panel disappears and stays gone.
           </p>
         </>
       )}
