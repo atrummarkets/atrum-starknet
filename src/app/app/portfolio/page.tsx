@@ -114,6 +114,18 @@ export default function Portfolio() {
   const staked =
     rows?.reduce((n, r) => n + r.open.reduce((k, o) => k + BigInt(o.escrow), 0n), 0n) ?? 0n;
   const withdrawable = rows?.reduce((n, r) => n + r.p.collateral, 0n) ?? 0n;
+  /**
+   * Value locked in matched pairs, not yet merged.
+   *
+   * Shown because "Ready to take out: 1.00" while holding five complete sets reads as
+   * having lost money. The sets ARE 5 STRK -- they simply have not been claimed -- and a
+   * balance that omits them describes a loss that did not happen.
+   */
+  const claimable =
+    rows?.reduce((n, r) => {
+      const pairs = r.p.yesUnits < r.p.noUnits ? r.p.yesUnits : r.p.noUnits;
+      return n + pairs * 10n ** 18n;
+    }, 0n) ?? 0n;
   const openCount = rows?.reduce((n, r) => n + r.open.length, 0) ?? 0;
 
   return (
@@ -139,13 +151,23 @@ export default function Portfolio() {
           </div>
         </div>
         <div className="panel">
-          <p className="panel-label">Ready to take out</p>
+          <p className="panel-label">Yours to take</p>
           <div className="sealed">
             <span className="sealed-n" style={{ fontVariantNumeric: "proportional-nums" }}>
-              {fmtStrk(withdrawable)}
+              {fmtStrk(withdrawable + claimable)}
             </span>
-            <span className="sealed-cap">STRK you can withdraw privately</span>
+            <span className="sealed-cap">
+              STRK — {fmtStrk(withdrawable)} ready to withdraw
+              {claimable > 0n && <> and {fmtStrk(claimable)} held in matched pairs</>}
+            </span>
           </div>
+          {claimable > 0n && (
+            <p className="notice">
+              Matched pairs are already worth {fmtStrk(claimable)} STRK whichever way the
+              question goes. <b>Merge them on the market page</b> to turn them into a
+              withdrawable balance — no counterparty needed, no waiting for the result.
+            </p>
+          )}
         </div>
       </div>
 
@@ -211,7 +233,11 @@ export default function Portfolio() {
               </div>
               {p.yesUnits > 0n && p.noUnits > 0n && (
                 <div className="stat-row">
-                  <dt>Matched pairs — you can cash out now</dt>
+                  <dt>
+                    Matched pairs — worth{" "}
+                    {fmtStrk((p.yesUnits < p.noUnits ? p.yesUnits : p.noUnits) * 10n ** 18n)}{" "}
+                    STRK, claimable now
+                  </dt>
                   <dd className="hi">
                     {(p.yesUnits < p.noUnits ? p.yesUnits : p.noUnits).toString()}
                   </dd>
