@@ -105,26 +105,84 @@ The mechanism here was designed and measured on Monad before this sprint, in
 
 Full measurement register: [`V2_EVIDENCE.md`](https://github.com/atrummarkets/atrum-core/blob/main/V2_EVIDENCE.md).
 
+## What is built
+
+### Contracts
+
+A **factory** deploys markets and indexes them on-chain. Its auction class hash is set in
+the constructor with **no setter** — every market it has produced, or ever will, runs the
+same code. That is the whole reason reading one market tells you anything about the next.
+
+Creation is **permissionless**, and the creator becomes their own market's resolver. What
+stops that being a rug: the question and resolution source are fixed at creation, the
+outcome can only be published inside a stated window, and once that window passes **anyone**
+can refund every holder at cost. A creator can be *wrong*. They cannot steal, cannot freeze
+funds, and cannot touch another market.
+
+Only `resolve` is gated on an address. Submitting, revealing, clearing, settling, merging,
+redeeming, withdrawing and forcing a refund are all open to anyone.
+
+**19 tests**, covering the three properties that matter: solvency (every matched unit is
+funded exactly 100 and exactly 100 comes back out), escrow (submit returns an *empty*
+deposit span, or the pool pulls the collateral straight back), and early exit (a position
+bought in one batch is cashed out in a later one with the market still unresolved).
+
+### The app
+
+| Route | |
+|---|---|
+| `/app` | markets index, read from the factory's on-chain index |
+| `/app/market/[address]` | one market: price history, order ticket, position, exit |
+| `/app/portfolio` | positions across every market |
+
+The index is not a hardcoded list — it walks the factory, so a market a stranger creates
+appears without anyone shipping a build.
+
+**Check the privacy yourself.** Pick an order you placed and the app fetches the transaction
+that carried it, then reports who actually submitted it and whether your address appears
+anywhere in the calldata. It is built to *fire*: if the address turns up, it says so in red.
+A check that could only return "you are safe" would train people to trust something that
+never triggers.
+
+**Autopilot.** Closing, clearing and settling a batch take no permission, so the app does
+them when they come due instead of leaving a trader to wait for a stranger. It also reveals
+your orders — miss that window and your trade silently does not happen. Every action names
+itself before it runs and can be switched off, because revealing makes your side and limit
+public and spending your gas is not a decision to make quietly.
+
+**Price history.** One clearing price per batch, read from the chain. Batches that never
+cleared are left out rather than drawn as zero — a gap is honest, a 0% is not.
+
+### Verified rather than assumed
+
+- The browser's commitment hashing is asserted against reference vectors printed by Cairo
+  (`scripts/check-hashing.mjs`). If the two ever disagreed, an order could never be revealed
+  and its escrow would be stranded — with both sides looking correct in isolation.
+- Every gas and fee figure is measured, including the pool's flat fee, read live from
+  `get_fee_amount` rather than trusted from a doc. See [DEPLOYMENTS.md](DEPLOYMENTS.md).
+
 ## Status
 
-Sprint build in progress. **Live on Starknet Sepolia**, nothing on mainnet yet, nothing here
-holds real value.
+**Live on Starknet Sepolia. Nothing on mainnet, nothing here holds real value.**
 
-The current market — question and resolution source stored on-chain, with no setter for
-either:
-
-> **Will STRK close below 0.0225 USD on 24 Aug 2026 00:00 UTC?**
-> Resolved from the Pragma STRK/USD median on Starknet mainnet at the stated time.
-
-Contract: [`0x04c9fc08…7cf2`](https://sepolia.voyager.online/contract/0x04c9fc08717d94c8d967d4cae2c1cfa7713daf5a45fb06bf900c970dd2dd7cf2)
-· 13 tests · see [DEPLOYMENTS.md](DEPLOYMENTS.md)
-
-**Who can trade:** anyone. The only function gated on an address is `resolve`. Submitting,
-revealing, clearing, settling, merging, redeeming and withdrawing are all permissionless —
-and if the resolver never resolves, `force_refund` is permissionless too, so the one power
-we keep has a public check on it.
+Three markets are live, created through the factory. Addresses and the measured costs are in
+[DEPLOYMENTS.md](DEPLOYMENTS.md).
 
 ## Honest limitations
+
+- **You must enrol with the pool once before anything works.** Turn on privacy in your
+  wallet, or use [strk20.starknet.io/app](https://strk20.starknet.io/app). The wallet API
+  exposes no registration call to apps, deliberately: the viewing key is derived from a
+  signature, and a key derived even slightly differently enrols *successfully* and then
+  silently fails to decrypt anything ever sent to you. That derivation belongs with whoever
+  holds the key.
+- **Ready is currently the only wallet with STRK20 support.** That is a narrow funnel and
+  not ours to widen.
+- **Resolution is a named address, not an oracle.** A price oracle can settle "will STRK be
+  below X" and cannot settle "will party Y win" — no feed for it exists. An optimistic oracle
+  is the honest answer for the second kind and is not in this version. Pyth would have
+  covered the first, and its Starknet support ends 26 Aug 2026; Chainlink is Sepolia-only;
+  Pragma is the viable route and is not wired yet.
 
 - **Anonymity scales with participation.** A sparse batch is both an inactive market and a
   weak anonymity set. This is a property of the mechanism; cryptography does not fix it.
