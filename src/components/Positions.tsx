@@ -138,11 +138,48 @@ export function Positions({
         <div className="exit">
           <span className="exit-head">You can exit now</span>
           <p>
-            You hold <b>{mergeable.toString()}</b> complete{" "}
-            {mergeable === 1n ? "set" : "sets"} — a YES and a NO together. That is worth
-            exactly {mergeable.toString()} STRK whichever way this resolves, so you can cash
-            out immediately. No counterparty, no waiting for the outcome.
+            You hold <b>{mergeable.toString()}</b> matched{" "}
+            {mergeable === 1n ? "pair" : "pairs"} — a YES and a NO together, worth exactly{" "}
+            {fmtStrk(mergeable * 10n ** 18n)} STRK whichever way this resolves. Cash out
+            without a counterparty and without waiting for the result.
           </p>
+          {/* The point of a matched pair is the DIFFERENCE between what it cost and the 1
+              STRK it is always worth. Showing only the payout hides the entire mechanism:
+              buying both sides at the same price nets to zero, and buying them rounds apart
+              at different prices is how you take a profit early. */}
+          {pos !== null && pos.staked > 0n && (
+            <dl style={{ margin: 0 }}>
+              <div className="stat-row">
+                <dt>You paid for what you hold</dt>
+                <dd>{fmtStrk(pos.staked)} STRK</dd>
+              </div>
+              <div className="stat-row">
+                <dt>Merging pays</dt>
+                <dd>{fmtStrk(mergeable * 10n ** 18n)} STRK</dd>
+              </div>
+              <div className="stat-row">
+                <dt>
+                  {mergeable * 10n ** 18n >= pos.staked ? "You keep" : "You give up"}
+                </dt>
+                <dd className="hi">
+                  {fmtStrk(
+                    mergeable * 10n ** 18n >= pos.staked
+                      ? mergeable * 10n ** 18n - pos.staked
+                      : pos.staked - mergeable * 10n ** 18n,
+                  )}{" "}
+                  STRK
+                </dd>
+              </div>
+            </dl>
+          )}
+          {pos !== null && pos.staked >= mergeable * 10n ** 18n && mergeable > 0n && (
+            <p style={{ margin: 0, fontSize: "0.86rem", color: "var(--text-2)" }}>
+              Break-even, because both sides were bought at the same price. A pair only shows a
+              profit when the two halves are bought <b>rounds apart</b> — buy YES at 40, buy NO
+              at 30 once the price has moved your way, and the pair still pays 1.00 while
+              having cost you 0.70.
+            </p>
+          )}
           <div className="btn-row">
             <input
               className="tick"
