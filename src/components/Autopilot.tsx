@@ -34,6 +34,19 @@ import type { Market } from "@/lib/atrum/useMarket";
 
 const NETNAME = process.env.NEXT_PUBLIC_STARKNET_NETWORK ?? "sepolia";
 
+/**
+ * Bets needed before a round closes.
+ *
+ * A round with one bet in it cannot match anything, so closing it just wastes gas. Two is
+ * the floor at which a trade is possible at all.
+ *
+ * It is also the anonymity floor: everyone who trades in a round is indistinguishable
+ * within it, so a round of two hides less than a round of twenty. Two is right for a
+ * testnet demo and low for anything real -- the number is a privacy parameter, not just a
+ * throughput one, and it belongs in the market's own configuration eventually.
+ */
+const MIN_BETS_TO_CLOSE = 2;
+
 type Job = { label: string; entrypoint: string; calldata: string[]; why: string };
 
 export function Autopilot({
@@ -80,12 +93,25 @@ export function Autopilot({
       };
     }
 
-    if (market.phase === "Open" && Date.now() / 1000 >= market.settleAfter) {
+    // Rounds cycle on their OWN rhythm and close many times before the event resolves.
+    // Gating this on `settleAfter` -- when the real-world question gets answered -- was a
+    // straight confusion of two unrelated clocks, and it made a round look frozen for days.
+    if (market.phase === "Open" && market.orderCount >= MIN_BETS_TO_CLOSE) {
       return {
-        label: "Close the batch",
+        label: "Close this round",
         entrypoint: "close_batch",
         calldata: [],
-        why: "The settle time has passed, so no more orders should be accepted.",
+        why: `${market.orderCount} bets are in — enough for a trade to be possible. Closing stops new ones and opens them all at once.`,
+      };
+    }
+
+    // Last call: once the event itself is due, the round closes regardless of how thin it is.
+    if (market.phase === "Open" && Date.now() / 1000 >= market.settleAfter) {
+      return {
+        label: "Close the final round",
+        entrypoint: "close_batch",
+        calldata: [],
+        why: "The event is due to be settled, so no further bets can be accepted.",
       };
     }
 
@@ -181,10 +207,18 @@ export function Autopilot({
         </p>
       )}
 
-      {unrevealed.length > 0 && market.phase !== "Revealing" && (
+      {market.phase === "Open" && market.orderCount > 0 && market.orderCount < MIN_BETS_TO_CLOSE && (
         <p className="notice">
-          {unrevealed.length} order{unrevealed.length === 1 ? "" : "s"} sealed and waiting for
-          this batch to close. Nothing to do yet.
+          {market.orderCount} bet{market.orderCount === 1 ? "" : "s"} in this round. A round
+          needs at least {MIN_BETS_TO_CLOSE} before anything can match, so it stays open until
+          someone else joins.
+        </p>
+      )}
+
+      {unrevealed.length > 0 && market.phase === "Open" && (
+        <p className="notice">
+          {unrevealed.length} of your bets {unrevealed.length === 1 ? "is" : "are"} sealed in
+          this round. Nothing for you to do — the round closes on its own.
         </p>
       )}
 
@@ -199,8 +233,9 @@ export function Autopilot({
       )}
 
       <p className="notice">
-        These calls take no permission from anyone, so the app makes them rather than leaving
-        you to wait. They cost a little gas, which is why each one names itself first.
+        Closing, opening and settling a round take no permission from anyone, so the app does
+        them rather than leaving you waiting. They cost a little gas, which is why each names
+        itself before it runs.
       </p>
     </div>
   );
