@@ -19,6 +19,7 @@ import { Register } from "@/components/Register";
 import { Disclosure, MarketHeader } from "@/components/Market";
 import { Keeper } from "@/components/Keeper";
 import { Autopilot } from "@/components/Autopilot";
+import { PrivacyProof } from "@/components/PrivacyProof";
 import { OrderTicket } from "@/components/OrderTicket";
 import { Positions } from "@/components/Positions";
 import { NET, POOL_FEE_FALLBACK } from "@/lib/atrum/config";
@@ -134,7 +135,13 @@ export default function MarketPage() {
         </div>
       </motion.div>
 
-      <motion.div {...rise(0.24, reduced)}>
+      {address && (
+        <motion.div {...rise(0.24, reduced)}>
+          <PrivacyProof userAddress={address} />
+        </motion.div>
+      )}
+
+      <motion.div {...rise(0.3, reduced)}>
         <Disclosure />
       </motion.div>
 
