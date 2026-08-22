@@ -23,6 +23,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { WalletAccountV6 } from "starknet";
 import { PRICES, fmtStrk } from "@/lib/atrum/config";
+import { formatDuration } from "@/lib/atrum/useNow";
 import {
   computeCommitment,
   computeHolder,
@@ -46,6 +47,7 @@ export function OrderTicket({
   poolFee,
   enrolled,
   settleAfter,
+  revealWindow,
   openOrdersSameSide,
   onPlaced,
 }: {
@@ -57,6 +59,15 @@ export function OrderTicket({
   poolFee: bigint;
   enrolled: boolean | null;
   settleAfter: number;
+  /**
+   * Seconds this market gives bidders to reveal after a round closes, or null for a market
+   * predating the on-chain window.
+   *
+   * It belongs on the ticket rather than only in the header because it is a term of the
+   * commitment being made by the button below, and a guarantee a trader learns about after
+   * paying is not one they can act on.
+   */
+  revealWindow: number | null;
   /** Your own resting orders on this side. Used to warn when nothing can match. */
   openOrdersSameSide: number;
   onPlaced: () => void;
@@ -226,6 +237,15 @@ export function OrderTicket({
       >
         {busy ? "Sealing…" : `Bet ${fmtStrk(stake)} STRK on ${side === 1 ? "YES" : "NO"}`}
       </button>
+
+      {revealWindow !== null && (
+        <p className="notice">
+          <b>You open this bet yourself.</b> When the round closes you get{" "}
+          {formatDuration(revealWindow)} to reveal it, and the contract will not let the round
+          be priced before that — so nobody can shut you out by being quicker. Miss the window
+          and the bet does not happen: your stake comes back, minus nothing.
+        </p>
+      )}
 
       <p className="notice">
         <b>At most.</b> Every bet in a batch settles at one shared price, so you often pay

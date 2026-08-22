@@ -648,6 +648,35 @@ footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 
   margin: 0.9rem 0 0;
 }
 .notice-warn { border-color: var(--atrum-ember); }
+
+/* ---------- the reveal window ---------- */
+
+/*
+ * Built on .notice rather than beside it, because this IS a notice -- the only difference is
+ * that it carries a deadline. A separate visual language would imply a separate kind of claim.
+ */
+.reveal-window {
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--text-2);
+  border-left: 2px solid var(--atrum-halo);
+  padding-left: 0.9rem;
+  margin: 0.9rem 0 0;
+}
+.reveal-window b { color: var(--text); }
+
+/* Under a minute left. Colour is the only change: the countdown is already the loudest thing
+ * in the sentence, and animating it would add urgency the contract does not actually have --
+ * missing the window costs a trade, not a stake. */
+.reveal-window-urgent {
+  border-color: var(--atrum-ember);
+}
+.reveal-window-urgent b { color: var(--atrum-ember); }
+
+/* Elapsed. Deliberately quiet: nothing is wrong, the round simply moved on. */
+.reveal-window-closed {
+  border-color: var(--rule-strong);
+}
 .notice code {
   font-family: var(--font-mono);
   font-size: 0.86em;

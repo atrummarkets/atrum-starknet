@@ -23,6 +23,24 @@ export type Market = {
   outcome: 0 | 1 | 2;
   settleAfter: number;
   resolveDeadline: number;
+  /**
+   * How long bidders get to reveal after a round closes, in seconds, per the contract.
+   *
+   * Null only for a market predating the on-chain window. The app is pointed at a factory
+   * whose markets all have it, so this is defensive rather than expected -- but the fallback
+   * has to be "say nothing" rather than "assume a number", because the whole value of this
+   * field is that it is a promise the chain is keeping.
+   */
+  revealWindow: number | null;
+  /** Block timestamp at which this round stopped taking orders. Zero while still open. */
+  closedAt: number;
+  /**
+   * Unix seconds after which `clear` will be accepted. Zero while the round is still open.
+   *
+   * This is the number the contract itself compares against, which is what makes it worth
+   * showing a trader: it is not our estimate of when clearing happens, it is the rule.
+   */
+  clearableAt: number;
 };
 
 export type Position = {
@@ -79,6 +97,22 @@ export function useMarket(marketAddress: string, pollMs = 12_000) {
         call(marketAddress, "get_clearing_price", [batch.toString()]),
       ]);
       const p = Number(BigInt(price[0]));
+
+      // Markets created before the reveal window moved on-chain do not have these views.
+      // Treated as "unknown" rather than defaulted, so the UI stays silent instead of
+      // promising a guarantee that market cannot make.
+      let revealWindow: number | null = null;
+      let closedAt = 0;
+      try {
+        const [rw, ca] = await Promise.all([
+          call(marketAddress, "get_reveal_window"),
+          call(marketAddress, "get_closed_at", [batch.toString()]),
+        ]);
+        revealWindow = Number(BigInt(rw[0]));
+        closedAt = Number(BigInt(ca[0]));
+      } catch {
+        revealWindow = null;
+      }
       setMarket({
         question: decodeByteArray(q),
         resolutionSource: decodeByteArray(src),
@@ -90,6 +124,9 @@ export function useMarket(marketAddress: string, pollMs = 12_000) {
         outcome: Number(BigInt(oc[0])) as 0 | 1 | 2,
         settleAfter: Number(BigInt(sa[0])),
         resolveDeadline: Number(BigInt(rd[0])),
+        revealWindow,
+        closedAt,
+        clearableAt: closedAt === 0 || revealWindow === null ? 0 : closedAt + revealWindow,
       });
       setError(null);
     } catch (e) {

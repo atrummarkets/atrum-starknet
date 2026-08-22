@@ -10,10 +10,11 @@
  */
 import type { Market } from "@/lib/atrum/useMarket";
 import { EXPLORER, NET } from "@/lib/atrum/config";
+import { formatDuration, formatRemaining, useNow } from "@/lib/atrum/useNow";
 
 const PHASE_COPY: Record<string, { cls: string; what: string }> = {
   Open: { cls: "phase-open", what: "Orders are being accepted. Nobody can read them." },
-  Revealing: { cls: "phase-revealing", what: "Batch closed. Orders are opening — too late to add one." },
+  Revealing: { cls: "phase-revealing", what: "Batch closed. Owners are opening their orders — too late to add one." },
   Cleared: { cls: "phase-cleared", what: "Cleared at one price. Fills are being applied." },
   Resolved: { cls: "phase-resolved", what: "Settled. Winners can redeem." },
   Refunding: { cls: "phase-refunding", what: "The resolver missed the deadline. Everyone is refunded at cost." },
@@ -26,6 +27,55 @@ function countdown(to: number): string {
   const h = Math.floor((s % 86400) / 3600);
   const m = Math.floor((s % 3600) / 60);
   return d > 0 ? `${d}d ${h}h` : h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+/**
+ * The reveal window, shown as a promise before it matters and a countdown while it does.
+ *
+ * This is the one guarantee on the page that a trader has to be able to check BEFORE
+ * committing money rather than discover afterwards. `clear` will not be accepted until this
+ * has elapsed, the value is fixed at the market's creation with no setter, and the contract
+ * enforces it — so it is not our undertaking to keep, and it is worth saying so plainly.
+ *
+ * Silent for a market that predates the on-chain window: there the wait really was a keeper's
+ * promise, and dressing that up as a guarantee here would be the exact misrepresentation the
+ * on-chain window exists to remove.
+ */
+function RevealWindow({ market }: { market: Market }) {
+  const now = useNow();
+  if (market.revealWindow === null) return null;
+
+  if (market.phase === "Open") {
+    return (
+      <p className="reveal-window">
+        <b>{formatDuration(market.revealWindow)} to reveal</b> once this round closes. Enforced
+        by the contract, not by us — clearing is rejected before then, so a bet cannot be
+        dropped from the auction while you still mean to open it.
+      </p>
+    );
+  }
+
+  if (market.phase !== "Revealing") return null;
+
+  // Rounded DOWN, so a browser clock running slightly fast understates the time left rather
+  // than promising a second that has already gone.
+  const left = market.clearableAt - now;
+
+  if (left <= 0) {
+    return (
+      <p className="reveal-window reveal-window-closed">
+        <b>Reveal window closed.</b> This round can now be cleared. Orders still sealed are out
+        of the auction and their stake comes back.
+      </p>
+    );
+  }
+
+  return (
+    <p className={`reveal-window${left <= 60 ? " reveal-window-urgent" : ""}`}>
+      <b>{formatRemaining(left)} left to reveal.</b> Nobody can clear this round before then —
+      not us, not a keeper, not whoever closed it.
+    </p>
+  );
 }
 
 export function MarketHeader({ market, address }: { market: Market | null; address: string }) {
@@ -60,6 +110,8 @@ export function MarketHeader({ market, address }: { market: Market | null; addre
       </div>
 
       <p className="notice">{p.what}</p>
+
+      <RevealWindow market={market} />
 
       <div className="sealed">
         <span className="sealed-n">{market.orderCount}</span>

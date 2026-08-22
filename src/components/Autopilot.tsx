@@ -31,6 +31,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { WalletAccountV6 } from "starknet";
 import { listOrders, markRevealed, type StoredOrder } from "@/lib/atrum/orders";
 import type { Market } from "@/lib/atrum/useMarket";
+import { CLOCK_MARGIN_SECONDS, formatRemaining, useNow } from "@/lib/atrum/useNow";
 
 const NETNAME = process.env.NEXT_PUBLIC_STARKNET_NETWORK ?? "sepolia";
 
@@ -61,6 +62,7 @@ export function Autopilot({
   onChange: () => void;
 }) {
   const [armed, setArmed] = useState(true);
+  const now = useNow();
   const [running, setRunning] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
   // A batch can be advanced once per phase; without this the poll fires the same call again
@@ -125,12 +127,24 @@ export function Autopilot({
     }
 
     if (market.phase === "Revealing" && unrevealed.length === 0 && mine.length > 0) {
-      return {
-        label: "Clear the batch",
-        entrypoint: "clear",
-        calldata: [],
-        why: "Everything of yours is revealed. Clearing finds the one price.",
-      };
+      // Everything of OURS being revealed is not a reason to clear: other people's orders are
+      // in this round too, and the contract will not accept `clear` until their window has
+      // closed. Firing anyway spends gas on a certain revert -- and the intent behind the rule
+      // is precisely that our readiness is not what decides when other people run out of time.
+      //
+      // Waiting past the deadline by a clock margin, because a browser running fast would
+      // otherwise send a transaction the chain rejects. See CLOCK_MARGIN_SECONDS.
+      const clearable =
+        market.clearableAt !== 0 &&
+        Date.now() / 1000 >= market.clearableAt + CLOCK_MARGIN_SECONDS;
+      if (clearable) {
+        return {
+          label: "Clear the batch",
+          entrypoint: "clear",
+          calldata: [],
+          why: "The reveal window has closed, so the round can be priced.",
+        };
+      }
     }
 
     if (market.phase === "Cleared") {
@@ -218,6 +232,18 @@ export function Autopilot({
         <p className="notice" style={{ marginTop: "0.8rem" }}>
           Nothing due. The batch advances itself when it needs to — you do not have to wait
           around for anyone.
+        </p>
+      )}
+
+      {/* Without this, waiting out the reveal window reads as "Nothing due" while the round
+          visibly sits closed, which looks like the app has stopped rather than like it is
+          obeying a rule. Naming the rule is the difference between a stall and a guarantee. */}
+      {market.phase === "Revealing" && market.clearableAt !== 0 && now < market.clearableAt && (
+        <p className="notice">
+          Waiting {formatRemaining(market.clearableAt - now)} before this round can be priced.
+          Everyone who bet gets the full window to open their order, whether or not you are
+          ready — the contract rejects clearing until then, so this is not a delay anyone here
+          can shorten.
         </p>
       )}
 

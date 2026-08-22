@@ -113,6 +113,7 @@ export default function MarketPage() {
           canTrade={market?.phase === "Open"}
           enrolled={enrolled}
           settleAfter={market?.settleAfter ?? 0}
+          revealWindow={market?.revealWindow ?? null}
           openOrdersSameSide={
             listOrders(
               process.env.NEXT_PUBLIC_STARKNET_NETWORK ?? "sepolia",
