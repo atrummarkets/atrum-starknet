@@ -122,10 +122,26 @@ funds, and cannot touch another market.
 Only `resolve` is gated on an address. Submitting, revealing, clearing, settling, merging,
 redeeming, withdrawing and forcing a refund are all open to anyone.
 
-**19 tests**, covering the three properties that matter: solvency (every matched unit is
+That openness has a cost, and the contract pays it rather than asking you to trust whoever
+runs a keeper. Because `close_batch` and `clear` are both permissionless, one caller can make
+both — and clearing the instant a round closed would drop every bet whose owner had not
+revealed yet. Their stake returns; their trade silently never happens; the on-chain record
+looks exactly like an honest clearing.
+
+So **the wait is on-chain**. `close_batch` stamps the block timestamp, `clear` refuses until
+that market's `reveal_window` has elapsed, and the window is fixed at creation with no setter.
+A trader reads `get_reveal_window()` **before** committing money.
+
+This used to be a timer inside the keeper process, which was three kinds of wrong at once:
+unverifiable from outside, unenforceable against a hostile keeper, and lost on every restart.
+A promise a keeper makes about its own behaviour is not a property of the system.
+
+**28 tests**, covering the four properties that matter: solvency (every matched unit is
 funded exactly 100 and exactly 100 comes back out), escrow (submit returns an *empty*
-deposit span, or the pool pulls the collateral straight back), and early exit (a position
-bought in one batch is cashed out in a later one with the market still unresolved).
+deposit span, or the pool pulls the collateral straight back), early exit (a position bought
+in one batch is cashed out in a later one with the market still unresolved), and the reveal
+window below — including the hostile sequence itself, closing and clearing with nothing in
+between.
 
 ### The app
 
@@ -149,6 +165,12 @@ them when they come due instead of leaving a trader to wait for a stranger. It a
 your orders — miss that window and your trade silently does not happen. Every action names
 itself before it runs and can be switched off, because revealing makes your side and limit
 public and spending your gas is not a decision to make quietly.
+
+**A keeper runs too**, so a trader who closes the tab still gets a result. It holds no state:
+every deadline it acts on is read from the chain, which is what makes it restart-safe,
+replicable, and safe for a stranger to run against your markets without you trusting their
+configuration. It **cannot reveal an order** — that needs the bettor's own secret, and a
+keeper that could reveal one could read one. See [`keeper/`](keeper/).
 
 **Price history.** One clearing price per batch, read from the chain. Batches that never
 cleared are left out rather than drawn as zero — a gap is honest, a 0% is not.
