@@ -187,6 +187,9 @@ cleared are left out rather than drawn as zero — a gap is honest, a 0% is not.
 
 **Live on Starknet Sepolia. Nothing on mainnet, nothing here holds real value.**
 
+The plan to change that, and what is deliberately not being built, is in
+[ROADMAP.md](ROADMAP.md).
+
 Three markets are live, created through the factory. Addresses and the measured costs are in
 [DEPLOYMENTS.md](DEPLOYMENTS.md).
 
