@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Syne, Manrope, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { THEME_INIT_SCRIPT } from "@/lib/atrum/theme";
 
 const syne = Syne({ subsets: ["latin"], weight: ["600", "700"], variable: "--font-syne" });
 const manrope = Manrope({ subsets: ["latin"], variable: "--font-manrope" });
@@ -27,7 +28,22 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${syne.variable} ${manrope.variable} ${mono.variable}`}>
+    // suppressHydrationWarning because the script below writes data-theme on the client
+    // before React sees the element. The mismatch is the feature: the alternative is
+    // painting the wrong theme first and correcting it after hydration.
+    <html
+      lang="en"
+      className={`${syne.variable} ${manrope.variable} ${mono.variable}`}
+      suppressHydrationWarning
+    >
+      <head>
+        {/*
+          Runs before first paint, so a reader who chose light never sees a black flash.
+          Anything deferred to hydration paints the default theme first, and the further the
+          chosen theme is from the default the more violent that flash is.
+        */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body>{children}</body>
     </html>
   );

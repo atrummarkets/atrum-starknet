@@ -1,0 +1,60 @@
+# Checks that cannot be done by looking.
+#
+# Both of these guard a property that fails SILENTLY. A palette drifting below AA still
+# renders; a browser hash diverging from Cairo still produces a commitment. Neither shows up
+# as a broken build, a red test, or anything a reviewer would notice in a diff — which is
+# exactly why they are asserted mechanically on every push rather than remembered.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+
+      - name: typecheck
+        run: npx tsc --noEmit
+
+      # Every text/background pair in both themes, against the threshold each one owes.
+      # Also fails if a token is defined in one theme and not the other, or referenced and
+      # never defined — the bug that left error text un-red for the whole of this project's
+      # life until the check existed.
+      - name: contrast
+        run: npm run check:contrast
+
+      # The browser's Poseidon against reference vectors printed by Cairo. If these diverge an
+      # order can never be revealed and its escrow is stranded, with both sides looking
+      # correct in isolation.
+      - name: commitment hashing
+        run: npm run check:hashing
+
+      - name: build
+        run: npx next build
+        env:
+          NEXT_PUBLIC_ENABLE_APP: "1"
+
+  cairo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: software-mansion/setup-scarb@v1
+        with:
+          scarb-version: "2.18.0"
+      - uses: foundry-rs/setup-snfoundry@v4
+        with:
+          starknet-foundry-version: "0.63.0"
+      - run: scarb build
+        working-directory: cairo
+      - run: snforge test
+        working-directory: cairo

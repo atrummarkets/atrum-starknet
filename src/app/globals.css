@@ -5,8 +5,16 @@
    belongs to that ecosystem and should read as part of it on sight.
    ========================================================================== */
 
+/* --------------------------------------------------------------------------
+   MATERIAL. Brand constants, identical in both themes.
+
+   The light theme is not a second palette -- it is this same ramp read from the
+   other end. Ivory and bone were always the top of it; light mode simply makes
+   them the ground and the void the ink. That is why the two themes look like
+   one product rather than two skins.
+   -------------------------------------------------------------------------- */
+
 :root {
-  /* --- Material: the void ------------------------------------------------ */
   --atrum-void:      #06070A;
   --atrum-basalt:    #0D0F14;
   --atrum-graphite:  #15181F;
@@ -23,22 +31,6 @@
   --strk-orange-lit: #FF9382;
   --strk-deep:       #7A2F26;
 
-  /* Chart marks are a different job from UI accents, so they get their own step.
-     #EC796B is OKLCH L 0.704 -- correct for a button, outside the 0.48-0.67 band a
-     dark-mode data mark wants. #E2664A sits at 0.48 and clears contrast against the
-     panel surface (#12151B). Computed with the dataviz validator, not eyeballed. */
-  --viz-accent:      #E2664A;
-  --viz-grid:        rgba(232, 228, 220, 0.07);
-
-  --bg:          var(--atrum-void);
-  --bg-raised:   var(--atrum-basalt);
-  --bg-panel:    var(--atrum-graphite);
-  --rule:        rgba(232, 228, 220, 0.10);
-  --rule-strong: rgba(232, 228, 220, 0.22);
-  --text:        var(--atrum-bone);
-  --text-2:      var(--atrum-smoke);
-  --text-3:      var(--atrum-ash);
-
   --t-hero:    clamp(44px, 8vw, 104px);
   --t-lead:    clamp(17px, 2.1vw, 21px);
   --t-body:    16px;
@@ -47,6 +39,142 @@
   --font-display: var(--font-syne), system-ui, sans-serif;
   --font-text:    var(--font-manrope), system-ui, -apple-system, sans-serif;
   --font-mono:    var(--font-geist-mono), ui-monospace, Menlo, monospace;
+}
+
+/* --------------------------------------------------------------------------
+   SEMANTICS, light. Declared on bare :root so every colour has a value before
+   any media query or [data-theme] is consulted -- a token whose only definition
+   lives inside a conditional block is a token that is sometimes missing.
+
+   Which is not hypothetical here: --atrum-ember, --atrum-halo and --bg-inset
+   were referenced throughout this file and defined nowhere, so error text was
+   never red and the "revealing" phase was never tinted. Both declarations were
+   simply dropped as invalid, which fails silently and looks like a design
+   choice.
+   -------------------------------------------------------------------------- */
+
+:root {
+  --bg:          var(--atrum-ivory);
+  --bg-raised:   #FBF8F1;
+  --bg-panel:    #FDFBF6;
+  --bg-inset:    #EDE8DC;
+  --rule:        rgba(21, 24, 31, 0.12);
+  --rule-strong: rgba(21, 24, 31, 0.24);
+  --text:        var(--atrum-graphite);
+  --text-2:      #4E5763;
+  /* Solved for AA against all four surfaces, not chosen by eye -- see
+     scripts/check-contrast.mjs. It is the faintest text on the page and the labels using it
+     are small and uppercase, so it is held to body contrast rather than large-text contrast. */
+  --text-3:      #616977;
+  /* The border of an INPUT is a UI component boundary and owes 3:1 under WCAG 1.4.11. A
+     divider between two panels owes nothing, being decorative. Same hairline to look at,
+     different obligation, so they are different tokens. */
+  --rule-input:  #626A78;
+
+  /* The accent is a mid-tone (#EC796B is OKLCH L 0.70), which is right for a
+     filled button in either theme and too pale for text on paper. So the two
+     jobs are separate tokens: --accent fills, --accent-ink is the accent when
+     it has to be read. */
+  --accent:      var(--strk-orange);
+  --accent-ink:  var(--strk-deep);
+  --on-accent:   #16070A;
+
+  /* State colours, deliberately NOT the brand accent. Salmon orange already
+     means "Atrum"; reusing it for "error" would make the two indistinguishable
+     at a glance, which is the one thing a state colour exists to prevent. */
+  --atrum-ember: #C0342E;
+  --atrum-halo:  #2D5AA0;
+
+  /* The fog plates are pure luminance, so the blend mode is what decides
+     whether they add light or take it away. `screen` drops black and glows;
+     on paper it does nothing at all, because white screened with anything is
+     still white. `multiply` is the same plates read as shadow. */
+  --atmos-blend:    multiply;
+  --atmos-strength: 0.45;
+  --chrome-shadow:  rgba(21, 24, 31, 0.18);
+
+  --viz-accent: #C2492C;
+  --viz-grid:   rgba(21, 24, 31, 0.08);
+
+  color-scheme: light;
+}
+
+/* --------------------------------------------------------------------------
+   SEMANTICS, dark. The original design, and still the default for anyone whose
+   system asks for dark.
+
+   Guarded with :not([data-theme="light"]) so an explicit choice of light beats
+   the system preference. Without the guard the media query would win and the
+   toggle would appear broken in exactly one direction, which is the classic
+   version of this bug.
+   -------------------------------------------------------------------------- */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:          var(--atrum-void);
+    --bg-raised:   var(--atrum-basalt);
+    --bg-panel:    var(--atrum-graphite);
+    --bg-inset:    #090A0E;
+    --rule:        rgba(232, 228, 220, 0.10);
+    --rule-strong: rgba(232, 228, 220, 0.22);
+    --text:        var(--atrum-bone);
+    --text-2:      var(--atrum-smoke);
+    /* Was --atrum-ash, which sat at 2.96:1 on a panel -- an AA failure that predates the
+       light theme and was invisible until every pair got measured. */
+    --text-3:      #79818D;
+    --rule-input:  #5C6673;
+
+    --accent:      var(--strk-orange);
+    --accent-ink:  var(--strk-orange);
+    --on-accent:   #16070A;
+
+    --atrum-ember: #FF5C5C;
+    --atrum-halo:  #7FB0FF;
+
+    --atmos-blend:    screen;
+    --atmos-strength: 1;
+    --chrome-shadow:  rgba(6, 7, 10, 0.9);
+
+    /* A chart mark on a dark panel wants OKLCH L 0.48-0.67; #E2664A sits at
+       0.48 and clears contrast against #12151B. Computed with the dataviz
+       validator, not eyeballed. */
+    --viz-accent: #E2664A;
+    --viz-grid:   rgba(232, 228, 220, 0.07);
+
+    color-scheme: dark;
+  }
+}
+
+/* The explicit choice, in both directions. Repeated rather than shared with the
+   media query because a selector list containing an @media-only condition is not
+   expressible -- and duplicating eleven values is cheaper than a preprocessor. */
+:root[data-theme="dark"] {
+  --bg:          var(--atrum-void);
+  --bg-raised:   var(--atrum-basalt);
+  --bg-panel:    var(--atrum-graphite);
+  --bg-inset:    #090A0E;
+  --rule:        rgba(232, 228, 220, 0.10);
+  --rule-strong: rgba(232, 228, 220, 0.22);
+  --text:        var(--atrum-bone);
+  --text-2:      var(--atrum-smoke);
+  --text-3:      #79818D;
+  --rule-input:  #5C6673;
+
+  --accent:      var(--strk-orange);
+  --accent-ink:  var(--strk-orange);
+  --on-accent:   #16070A;
+
+  --atrum-ember: #FF5C5C;
+  --atrum-halo:  #7FB0FF;
+
+  --atmos-blend:    screen;
+  --atmos-strength: 1;
+  --chrome-shadow:  rgba(6, 7, 10, 0.9);
+
+  --viz-accent: #E2664A;
+  --viz-grid:   rgba(232, 228, 220, 0.07);
+
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -83,6 +211,10 @@ html, body {
   content: "";
   position: absolute;
   inset: 0;
+  /* Scaled with the atmosphere: at full strength this is a light source in a
+     dark room, and at light-theme strength it is a faint warm cast on paper.
+     Unscaled it would read as a stain. */
+  opacity: var(--atmos-strength);
   background:
     radial-gradient(58vw 68vh at 68% -12%, rgba(236, 121, 107, 0.15), transparent 62%),
     radial-gradient(40vw 40vh at 6% 110%, rgba(236, 121, 107, 0.07), transparent 70%);
@@ -90,7 +222,7 @@ html, body {
 
 .fog {
   position: absolute;
-  mix-blend-mode: screen;
+  mix-blend-mode: var(--atmos-blend);
   background-repeat: no-repeat;
   background-size: cover;
   will-change: transform;
@@ -100,7 +232,7 @@ html, body {
   inset: -12% -18% auto -18%;
   height: 82vh;
   background-image: url("/scene/fog-curtain.webp");
-  opacity: 0.3;
+  opacity: calc(0.3 * var(--atmos-strength));
   animation: drift-a 71s ease-in-out infinite alternate;
 }
 
@@ -108,7 +240,7 @@ html, body {
   inset: auto -22% -18% -22%;
   height: 64vh;
   background-image: url("/scene/fog-column.webp");
-  opacity: 0.2;
+  opacity: calc(0.2 * var(--atmos-strength));
   animation: drift-b 97s ease-in-out infinite alternate;
 }
 
@@ -118,7 +250,7 @@ html, body {
   inset: auto 0 0 0;
   height: 52vh;
   background: url("/scene/backdrop.webp") center bottom / cover no-repeat;
-  opacity: 0.14;
+  opacity: calc(0.14 * var(--atmos-strength));
   mask-image: linear-gradient(to top, #000 0%, transparent 92%);
 }
 
@@ -159,7 +291,7 @@ header {
   width: auto;
   /* The chrome art is bright; the shadow keeps it sitting IN the void rather
      than floating on top of it. */
-  filter: drop-shadow(0 0 16px rgba(6, 7, 10, 0.9));
+  filter: drop-shadow(0 0 16px var(--chrome-shadow));
 }
 
 .chain {
@@ -170,7 +302,7 @@ header {
   font-size: var(--t-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--strk-orange);
+  color: var(--accent-ink);
   border: 1px solid rgba(236, 121, 107, 0.32);
   border-radius: 2px;
   padding: 0.42em 0.7em;
@@ -213,7 +345,7 @@ h1 {
 }
 h1 em {
   font-style: normal;
-  color: var(--strk-orange);
+  color: var(--accent-ink);
 }
 
 .lead {
@@ -249,7 +381,7 @@ h1 em {
   font-family: var(--font-mono);
   font-size: var(--t-label);
   letter-spacing: 0.1em;
-  color: var(--strk-orange);
+  color: var(--accent-ink);
 }
 .props b { color: var(--text); font-weight: 600; }
 
@@ -266,7 +398,7 @@ form {
 input[type="email"] {
   flex: 1 1 16rem;
   background: var(--bg-panel);
-  border: 1px solid var(--rule-strong);
+  border: 1px solid var(--rule-input);
   border-radius: 3px;
   color: var(--text);
   font-family: var(--font-text);
@@ -277,13 +409,13 @@ input[type="email"] {
 input[type="email"]::placeholder { color: var(--text-3); }
 input[type="email"]:focus-visible {
   outline: none;
-  border-color: var(--strk-orange);
+  border-color: var(--accent-ink);
   box-shadow: 0 0 0 3px rgba(236, 121, 107, 0.16);
 }
 
 button {
   background: var(--strk-orange);
-  color: #16070A;
+  color: var(--on-accent);
   border: none;
   border-radius: 3px;
   font-family: var(--font-text);
@@ -306,7 +438,7 @@ button:focus-visible {
   min-height: 1.4em;
   color: var(--text-2);
 }
-.msg[data-ok="true"] { color: var(--strk-orange); }
+.msg[data-ok="true"] { color: var(--accent-ink); }
 
 /* ---------- footer ---------- */
 
@@ -324,7 +456,7 @@ footer {
   color: var(--text-3);
 }
 footer a { color: var(--text-3); text-decoration: none; }
-footer a:hover { color: var(--strk-orange); }
+footer a:hover { color: var(--accent-ink); }
 footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 3px; }
 
 /* Reduced motion means INSTANT, not broken: the fog stays, it simply stops
@@ -425,7 +557,7 @@ footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 
   background: currentColor;
   box-shadow: 0 0 9px currentColor;
 }
-.phase-open      { color: var(--strk-orange); }
+.phase-open      { color: var(--accent-ink); }
 .phase-revealing { color: var(--atrum-halo); }
 .phase-cleared   { color: var(--atrum-pewter); }
 .phase-resolved  { color: var(--atrum-ivory); }
@@ -467,7 +599,7 @@ footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 
   font-variant-numeric: tabular-nums;
   color: var(--text);
 }
-.stat-row dd.hi { color: var(--strk-orange); }
+.stat-row dd.hi { color: var(--accent-ink); }
 
 /* ---------- side toggle ---------- */
 
@@ -475,7 +607,7 @@ footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 
 
 .side-btn {
   background: transparent;
-  border: 1px solid var(--rule-strong);
+  border: 1px solid var(--rule-input);
   border-radius: 3px;
   color: var(--text-2);
   font-family: var(--font-text);
@@ -487,7 +619,7 @@ footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 
 }
 .side-btn:hover { border-color: var(--text-3); color: var(--text); }
 .side-btn[aria-pressed="true"] {
-  border-color: var(--strk-orange);
+  border-color: var(--accent-ink);
   color: var(--atrum-ivory);
   background: rgba(236, 121, 107, 0.1);
 }
@@ -521,7 +653,7 @@ footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 
 }
 .tick:hover { border-color: var(--text-3); color: var(--text); }
 .tick[aria-pressed="true"] {
-  border-color: var(--strk-orange);
+  border-color: var(--accent-ink);
   background: rgba(236, 121, 107, 0.12);
   color: var(--atrum-ivory);
 }
@@ -537,8 +669,8 @@ footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 
   color: var(--text-3);
 }
 .field input {
-  background: var(--bg-inset, #090A0E);
-  border: 1px solid var(--rule-strong);
+  background: var(--bg-inset);
+  border: 1px solid var(--rule-input);
   border-radius: 3px;
   color: var(--text);
   font-family: var(--font-mono);
@@ -548,7 +680,7 @@ footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 
 }
 .field input:focus-visible {
   outline: none;
-  border-color: var(--strk-orange);
+  border-color: var(--accent-ink);
   box-shadow: 0 0 0 3px rgba(236, 121, 107, 0.15);
 }
 .field .hint { font-size: 0.8rem; color: var(--text-3); }
@@ -557,7 +689,7 @@ footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 
 
 .btn {
   background: var(--strk-orange);
-  color: #16070A;
+  color: var(--on-accent);
   border: none;
   border-radius: 3px;
   font-family: var(--font-text);
@@ -571,10 +703,10 @@ footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 
 .btn:disabled { opacity: 0.45; cursor: default; }
 .btn-ghost {
   background: transparent;
-  border: 1px solid var(--rule-strong);
+  border: 1px solid var(--rule-input);
   color: var(--text);
 }
-.btn-ghost:hover:not(:disabled) { border-color: var(--strk-orange); background: transparent; }
+.btn-ghost:hover:not(:disabled) { border-color: var(--accent-ink); background: transparent; }
 .btn-wide { width: 100%; }
 .btn-sm { font-size: 0.84rem; padding: 0.55em 0.9em; }
 .btn:focus-visible, .side-btn:focus-visible, .tick:focus-visible {
@@ -616,7 +748,7 @@ footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 
 }
 .badge-sealed   { color: var(--text-3); }
 .badge-revealed { color: var(--atrum-halo); }
-.badge-filled   { color: var(--strk-orange); }
+.badge-filled   { color: var(--accent-ink); }
 
 /* ---------- the exit ---------- */
 
@@ -633,7 +765,7 @@ footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 
   font-size: var(--t-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--strk-orange);
+  color: var(--accent-ink);
 }
 .exit p { margin: 0; font-size: 0.92rem; color: var(--text-2); }
 
@@ -685,7 +817,7 @@ footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 
 
 .msg-line { margin: 0.8rem 0 0; font-size: 0.9rem; min-height: 1.3em; color: var(--text-2); }
 .msg-line[data-kind="err"] { color: var(--atrum-ember); }
-.msg-line[data-kind="ok"] { color: var(--strk-orange); }
+.msg-line[data-kind="ok"] { color: var(--accent-ink); }
 
 /* ---------- disclosure table ---------- */
 
@@ -706,7 +838,7 @@ footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 
 }
 .disclose td:last-child { font-family: var(--font-mono); font-size: 0.82rem; white-space: nowrap; }
 .yes-public { color: var(--atrum-ember); }
-.is-hidden { color: var(--strk-orange); }
+.is-hidden { color: var(--accent-ink); }
 
 /* ---------- keeper disclosure ---------- */
 
@@ -769,7 +901,7 @@ details:focus-within .keeper-toggle { color: var(--text); }
 .nav-link:hover { color: var(--text); }
 .nav-link[aria-current="page"] {
   color: var(--atrum-ivory);
-  border-bottom-color: var(--strk-orange);
+  border-bottom-color: var(--accent-ink);
 }
 .nav-link:focus-visible { outline: 2px solid var(--strk-orange); outline-offset: 3px; }
 
@@ -897,4 +1029,56 @@ details:focus-within .keeper-toggle { color: var(--text); }
   color: var(--text-3);
   text-decoration: none;
 }
-.back-link:hover { color: var(--strk-orange); }
+.back-link:hover { color: var(--accent-ink); }
+
+/* ---------- theme control ---------- */
+
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.theme-seg {
+  display: inline-flex;
+  border: 1px solid var(--rule-input);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.theme-seg-btn {
+  /* Overrides the global filled-accent `button` rule: three orange buttons in a row would
+     read as three actions rather than one setting with a current value. */
+  background: transparent;
+  color: var(--text-3);
+  border: none;
+  border-radius: 0;
+  padding: 0.3rem 0.62rem;
+  font-family: var(--font-text);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 140ms ease, background 140ms ease;
+}
+.theme-seg-btn + .theme-seg-btn { border-left: 1px solid var(--rule); }
+.theme-seg-btn:hover { color: var(--text); background: var(--bg-inset); }
+
+/* The selected one is filled, so which state is active is visible without reading. */
+.theme-seg-btn[data-active="true"] {
+  background: var(--strk-orange);
+  color: var(--on-accent);
+}
+.theme-seg-btn[data-active="true"]:hover { background: var(--strk-orange-lit); }
+
+/* Keyboard focus must stay visible on a filled segment as well as an empty one. */
+.theme-seg-btn:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: -2px;
+}
+
+.theme-hint {
+  font-size: 0.72rem;
+  color: var(--text-3);
+}

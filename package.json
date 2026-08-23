@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "check:contrast": "node scripts/check-contrast.mjs",
+    "check:hashing": "node scripts/check-hashing.mjs"
   },
   "dependencies": {
     "@starknet-io/get-starknet-discovery": "6.0.3",

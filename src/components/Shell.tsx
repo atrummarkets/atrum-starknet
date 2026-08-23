@@ -8,6 +8,7 @@
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { NET } from "@/lib/atrum/config";
 
 const NAV = [
@@ -57,6 +58,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
         <footer>
           <span>Built on Starknet · STRK20</span>
+          <ThemeToggle />
           <span>
             <a href="https://github.com/atrummarkets/atrum-starknet" target="_blank" rel="noreferrer">
               Source
