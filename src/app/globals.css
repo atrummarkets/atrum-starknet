@@ -89,8 +89,18 @@
      whether they add light or take it away. `screen` drops black and glows;
      on paper it does nothing at all, because white screened with anything is
      still white. `multiply` is the same plates read as shadow. */
-  --atmos-blend:    multiply;
-  --atmos-strength: 0.45;
+  /* The fog plates are photographic luminance authored to ADD light to a dark room. On paper
+     there is no honest way to reuse them: `screen` is a no-op against white, and `multiply`
+     turns a light source into a smear of grey — the plate stops reading as atmosphere and
+     starts reading as dirt on the screen.
+     So light mode does not use them at all. `display: none` also means the browser never
+     fetches the three .webp files, so the theme that cannot use them does not pay for them.
+     The warm wash below carries the same idea in a medium that suits the ground. */
+  --atmos-plates:   none;
+  --atmos-blend:    normal;
+  --atmos-strength: 0;
+  --wash-1:         rgba(236, 121, 107, 0.13);
+  --wash-2:         rgba(122, 47, 38, 0.05);
   --chrome-shadow:  rgba(21, 24, 31, 0.18);
 
   --viz-accent: #C2492C;
@@ -131,8 +141,11 @@
     --atrum-ember: #FF5C5C;
     --atrum-halo:  #7FB0FF;
 
+    --atmos-plates:   block;
     --atmos-blend:    screen;
     --atmos-strength: 1;
+    --wash-1:         rgba(236, 121, 107, 0.15);
+    --wash-2:         rgba(236, 121, 107, 0.07);
     --chrome-shadow:  rgba(6, 7, 10, 0.9);
 
     /* A chart mark on a dark panel wants OKLCH L 0.48-0.67; #E2664A sits at
@@ -167,8 +180,11 @@
   --atrum-ember: #FF5C5C;
   --atrum-halo:  #7FB0FF;
 
+  --atmos-plates:   block;
   --atmos-blend:    screen;
   --atmos-strength: 1;
+  --wash-1:         rgba(236, 121, 107, 0.15);
+  --wash-2:         rgba(236, 121, 107, 0.07);
   --chrome-shadow:  rgba(6, 7, 10, 0.9);
 
   --viz-accent: #E2664A;
@@ -211,21 +227,28 @@ html, body {
   content: "";
   position: absolute;
   inset: 0;
-  /* Scaled with the atmosphere: at full strength this is a light source in a
-     dark room, and at light-theme strength it is a faint warm cast on paper.
-     Unscaled it would read as a stain. */
-  opacity: var(--atmos-strength);
+  /* The one atmospheric layer both themes share. In dark it is the light source the fog
+     plates catch; in light it is the whole atmosphere, and the alpha is carried by the token
+     rather than by an opacity multiplier — a wash tuned per theme beats one wash dimmed. */
   background:
-    radial-gradient(58vw 68vh at 68% -12%, rgba(236, 121, 107, 0.15), transparent 62%),
-    radial-gradient(40vw 40vh at 6% 110%, rgba(236, 121, 107, 0.07), transparent 70%);
+    radial-gradient(58vw 68vh at 68% -12%, var(--wash-1), transparent 62%),
+    radial-gradient(40vw 40vh at 6% 110%, var(--wash-2), transparent 70%);
 }
 
 .fog {
+  display: var(--atmos-plates);
   position: absolute;
   mix-blend-mode: var(--atmos-blend);
   background-repeat: no-repeat;
   background-size: cover;
-  will-change: transform;
+}
+
+/* `will-change` promotes an element to its own compositor layer and KEEPS it there. Declared
+   unconditionally it costs a full-viewport layer of GPU memory each, permanently, on every
+   device — including phones, and including readers who asked for no motion, where nothing is
+   animating for the promotion to help. Scoped to the case that actually benefits. */
+@media (prefers-reduced-motion: no-preference) {
+  .fog { will-change: transform; }
 }
 
 .fog-a {
@@ -246,12 +269,28 @@ html, body {
 
 /* The floor. Barely there — it grounds the page without becoming scenery. */
 .backdrop {
+  display: var(--atmos-plates);
   position: absolute;
   inset: auto 0 0 0;
   height: 52vh;
   background: url("/scene/backdrop.webp") center bottom / cover no-repeat;
   opacity: calc(0.14 * var(--atmos-strength));
   mask-image: linear-gradient(to top, #000 0%, transparent 92%);
+}
+
+/* Phones. Two animated full-bleed layers behind a data UI is a battery cost paid for scenery
+   that a 390px viewport mostly crops anyway, and the fog sitting behind dense panels is worse
+   for legibility the less room those panels have. The wash stays — it is a gradient, it costs
+   nothing, and it keeps the room warm. */
+@media (max-width: 40rem) {
+  .fog, .backdrop { display: none; }
+}
+
+/* A page that reaches paper should not spend ink on a light source, and should not print
+   pale-on-pale if it was captured in dark mode. */
+@media print {
+  .atmos { display: none; }
+  html, body { background: #fff; color: #000; }
 }
 
 @keyframes drift-a {
