@@ -135,6 +135,14 @@ const PAIRS = [
   // Text sitting on the filled accent: buttons, the selected theme segment.
   ["--on-accent", "--strk-orange", 4.5],
   ["--on-accent", "--strk-orange-lit", 4.5],
+  // A focus indicator owes 3:1 against what surrounds it (WCAG 2.4.11). Every ring here uses
+  // a 2px offset, so the thing it sits against is the SURFACE behind the control, not the
+  // control's own fill. Listed because using the brand accent for focus looked obviously
+  // right and measured 2.29:1 on light -- the kind of failure staring at it cannot find.
+  ["--focus-ring", "--bg", 3.0],
+  ["--focus-ring", "--bg-raised", 3.0],
+  ["--focus-ring", "--bg-panel", 3.0],
+  ["--focus-ring", "--bg-inset", 3.0],
   // The border of an input or a button is a UI component boundary: WCAG 1.4.11 wants 3:1,
   // because not being able to find the edge of a text field is not a cosmetic problem.
   ["--rule-input", "--bg", 3.0],

@@ -78,6 +78,12 @@
   --accent:      var(--strk-orange);
   --accent-ink:  var(--strk-deep);
   --on-accent:   #16070A;
+  /* A focus indicator owes 3:1 against what surrounds it (WCAG 2.4.11). The accent itself
+     manages only 2.29-2.70:1 on the light surfaces, so using the brand colour for focus --
+     which looked obviously right -- was an accessibility failure that no amount of staring
+     at it would have revealed. Measured in scripts/check-contrast.mjs. */
+  --focus-ring:  var(--strk-deep);
+  --focus-halo:  rgba(122, 47, 38, 0.18);
 
   /* State colours, deliberately NOT the brand accent. Salmon orange already
      means "Atrum"; reusing it for "error" would make the two indistinguishable
@@ -137,6 +143,9 @@
     --accent:      var(--strk-orange);
     --accent-ink:  var(--strk-orange);
     --on-accent:   #16070A;
+    /* 7.21:1 on the void -- the accent is a perfectly good focus ring here. */
+    --focus-ring:  var(--strk-orange);
+    --focus-halo:  rgba(236, 121, 107, 0.16);
 
     --atrum-ember: #FF5C5C;
     --atrum-halo:  #7FB0FF;
@@ -176,6 +185,8 @@
   --accent:      var(--strk-orange);
   --accent-ink:  var(--strk-orange);
   --on-accent:   #16070A;
+  --focus-ring:  var(--strk-orange);
+  --focus-halo:  rgba(236, 121, 107, 0.16);
 
   --atrum-ember: #FF5C5C;
   --atrum-halo:  #7FB0FF;
@@ -449,7 +460,7 @@ input[type="email"]::placeholder { color: var(--text-3); }
 input[type="email"]:focus-visible {
   outline: none;
   border-color: var(--accent-ink);
-  box-shadow: 0 0 0 3px rgba(236, 121, 107, 0.16);
+  box-shadow: 0 0 0 3px var(--focus-halo);
 }
 
 button {
@@ -467,7 +478,10 @@ button {
 button:hover:not(:disabled) { background: var(--strk-orange-lit); }
 button:disabled { opacity: 0.55; cursor: default; }
 button:focus-visible {
-  outline: 2px solid var(--strk-orange-lit);
+  /* Was --strk-orange-lit: a paler orange ring around an orange button, which is barely a
+     ring at all. The 2px offset shows the page behind, so what the indicator has to contrast
+     with is the SURFACE, not the fill. */
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -496,7 +510,7 @@ footer {
 }
 footer a { color: var(--text-3); text-decoration: none; }
 footer a:hover { color: var(--accent-ink); }
-footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 3px; }
+footer a:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 3px; }
 
 /* Reduced motion means INSTANT, not broken: the fog stays, it simply stops
    drifting, and entrances resolve to their final state rather than never
@@ -720,7 +734,7 @@ footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 
 .field input:focus-visible {
   outline: none;
   border-color: var(--accent-ink);
-  box-shadow: 0 0 0 3px rgba(236, 121, 107, 0.15);
+  box-shadow: 0 0 0 3px var(--focus-halo);
 }
 .field .hint { font-size: 0.8rem; color: var(--text-3); }
 
@@ -749,7 +763,7 @@ footer a:focus-visible { outline: 1px solid var(--strk-orange); outline-offset: 
 .btn-wide { width: 100%; }
 .btn-sm { font-size: 0.84rem; padding: 0.55em 0.9em; }
 .btn:focus-visible, .side-btn:focus-visible, .tick:focus-visible {
-  outline: 2px solid var(--strk-orange-lit);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -942,7 +956,7 @@ details:focus-within .keeper-toggle { color: var(--text); }
   color: var(--atrum-ivory);
   border-bottom-color: var(--accent-ink);
 }
-.nav-link:focus-visible { outline: 2px solid var(--strk-orange); outline-offset: 3px; }
+.nav-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
 
 /* ---------- market cards ---------- */
 
@@ -970,7 +984,7 @@ details:focus-within .keeper-toggle { color: var(--text); }
   transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), border-color 180ms ease;
 }
 .card:hover { transform: translateY(-3px); border-color: var(--rule-strong); }
-.card:focus-visible { outline: 2px solid var(--strk-orange); outline-offset: 3px; }
+.card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
 
 /* A cursor-tracked highlight. One ornament, and it only exists on hover. */
 .card::before {
@@ -1113,7 +1127,7 @@ details:focus-within .keeper-toggle { color: var(--text); }
 
 /* Keyboard focus must stay visible on a filled segment as well as an empty one. */
 .theme-seg-btn:focus-visible {
-  outline: 2px solid var(--accent-ink);
+  outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
 }
 
@@ -1121,3 +1135,43 @@ details:focus-within .keeper-toggle { color: var(--text); }
   font-size: 0.72rem;
   color: var(--text-3);
 }
+
+/* ---------- surfaces the browser draws for us ----------
+   Selection, scrollbars and native control tinting are painted by the browser, not by this
+   stylesheet, and they default to the UA's own idea of the current theme. Left alone they are
+   the details that give away a themed page: light-blue selection over a warm palette, a
+   scrollbar that stays dark after switching to light, a checkbox in the browser's accent
+   instead of ours. */
+
+::selection {
+  background: var(--strk-orange);
+  color: var(--on-accent);
+}
+
+/* Checkboxes, radios, range and progress. One line, and the native controls stop being the
+   only thing on the page that is not ours. */
+html {
+  accent-color: var(--strk-orange);
+}
+
+/* `color-scheme` on :root already tells the browser which scrollbar to draw, which is why it
+   is set per theme. This is the finer pass: a scrollbar tuned to the palette rather than to
+   the UA's generic dark or light. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-input) transparent;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--rule-input);
+  border-radius: 6px;
+  /* Inset by a transparent border so the thumb reads as a slim bar rather than filling the
+     gutter edge to edge. */
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--text-3); background-clip: content-box; }
+
+/* Long questions, addresses and hashes must not push the page sideways on a phone. */
+body { overflow-wrap: break-word; }
