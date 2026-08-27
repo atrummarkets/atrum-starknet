@@ -11,7 +11,7 @@ import Link from "next/link";
 import { motion, useReducedMotion } from "motion/react";
 import { Shell } from "@/components/Shell";
 import { useMarkets, type MarketCard } from "@/lib/atrum/useMarkets";
-import { AUCTION_CLASS, EXPLORER, FACTORY, NET } from "@/lib/atrum/config";
+import { AUCTION_CLASS, EXPLORER, FACTORY, FACTORY_DEPLOYED, NET } from "@/lib/atrum/config";
 
 const APP_ENABLED = process.env.NEXT_PUBLIC_ENABLE_APP === "1";
 
@@ -126,7 +126,15 @@ export default function Markets() {
         ))}
       </motion.div>
 
-      {markets?.length === 0 && (
+      {markets?.length === 0 && !FACTORY_DEPLOYED && (
+        <p className="notice">
+          <b>Atrum is not deployed on {NET} yet.</b> Nothing here is broken — there is simply
+          no factory on this network. Switch to a network where it is live, or see
+          DEPLOYMENTS.md for what exists where.
+        </p>
+      )}
+
+      {markets?.length === 0 && FACTORY_DEPLOYED && (
         <p className="notice">No markets yet. Anyone can create one.</p>
       )}
 

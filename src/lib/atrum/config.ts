@@ -37,6 +37,16 @@ export const AUCTION_CLASS = {
   mainnet: "0x0",
 } as const;
 
+/**
+ * Whether this network has a factory at all.
+ *
+ * Mainnet is `0x0` until it is deployed, and calling a method on the zero address does not
+ * fail in a way anyone can read — it surfaces as an RPC error about an uninitialised contract,
+ * which looks like the chain is down rather than like the product is not there yet. A network
+ * with nothing deployed is a state to render, not an error to report.
+ */
+export const FACTORY_DEPLOYED = BigInt(FACTORY[NET]) !== 0n;
+
 /** STRK. Same address on both networks. */
 export const STRK =
   "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d";

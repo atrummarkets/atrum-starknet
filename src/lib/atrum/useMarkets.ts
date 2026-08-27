@@ -7,7 +7,7 @@
  * build, or "permissionless creation" is a claim the product contradicts.
  */
 import { useCallback, useEffect, useState } from "react";
-import { FACTORY, NET } from "./config";
+import { FACTORY, FACTORY_DEPLOYED, NET } from "./config";
 import { provider } from "./wallet";
 import { decodeByteArray, type Phase, PHASES } from "./decode";
 
@@ -61,6 +61,13 @@ export function useMarkets(pollMs = 20_000) {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    // Nothing deployed on this network. An empty list is the truth here, and it lets the page
+    // say so plainly instead of relaying an RPC complaint about the zero address.
+    if (!FACTORY_DEPLOYED) {
+      setMarkets([]);
+      setError(null);
+      return;
+    }
     try {
       const cnt = Number(BigInt((await call(FACTORY[NET], "market_count"))[0]));
       const refs = await Promise.all(
